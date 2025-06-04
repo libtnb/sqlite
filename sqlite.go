@@ -77,7 +77,9 @@ func (d Dialector) Initialize(db *gorm.DB) (err error) {
 	}
 
 	for k, v := range d.ClauseBuilders() {
-		db.ClauseBuilders[k] = v
+		if _, ok := db.ClauseBuilders[k]; !ok {
+			db.ClauseBuilders[k] = v
+		}
 	}
 	return
 }
