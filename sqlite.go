@@ -50,11 +50,11 @@ func (d Dialector) Initialize(db *gorm.DB) (err error) {
 	if d.Conn != nil {
 		db.ConnPool = d.Conn
 	} else {
-		conn, err := sql.Open(d.DriverName, d.DSN)
+		connector, err := newWrappedConnector(d.DriverName, d.DSN)
 		if err != nil {
 			return err
 		}
-		db.ConnPool = conn
+		db.ConnPool = sql.OpenDB(connector)
 	}
 
 	var version string
