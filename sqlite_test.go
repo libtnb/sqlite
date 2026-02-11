@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"testing"
 
@@ -15,12 +16,23 @@ func TestDialector(t *testing.T) {
 	// This is the custom SQLite driver name.
 	const CustomDriverName = "my_custom_driver"
 
-	// Register the custom SQlite3 driver.
-	// It will have one custom function called "my_custom_function".
+	// Register a custom scalar function on the default driver.
+	sqlite.MustRegisterFunction("my_custom_function", &sqlite.FunctionImpl{
+		NArgs:         0,
+		Deterministic: true,
+		Scalar: func(ctx *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
+			return "my-result", nil
+		},
+	})
 
-	sql.Register(CustomDriverName,
-		&sqlite.Driver{},
-	)
+	// Obtain the global singleton driver (which carries registered functions)
+	// and register it under a custom name.
+	tmpDB, err := sql.Open(DriverName, "")
+	if err != nil {
+		t.Fatalf("failed to open default driver: %v", err)
+	}
+	sql.Register(CustomDriverName, tmpDB.Driver())
+	_ = tmpDB.Close()
 
 	rows := []struct {
 		description  string
@@ -56,16 +68,16 @@ func TestDialector(t *testing.T) {
 			},
 			openSuccess: false,
 		},
-		// {
-		// 	description: "Explicit default driver, custom function",
-		// 	dialector: &Dialector{
-		// 		DriverName: DriverName,
-		// 		DSN:        InMemoryDSN,
-		// 	},
-		// 	openSuccess:  true,
-		// 	query:        "SELECT my_custom_function()",
-		// 	querySuccess: false,
-		// },
+		{
+			description: "Explicit default driver, custom function",
+			dialector: &Dialector{
+				DriverName: DriverName,
+				DSN:        InMemoryDSN,
+			},
+			openSuccess:  true,
+			query:        "SELECT my_custom_function()",
+			querySuccess: true,
+		},
 		{
 			description: "Custom driver",
 			dialector: &Dialector{
@@ -76,16 +88,16 @@ func TestDialector(t *testing.T) {
 			query:        "SELECT 1",
 			querySuccess: true,
 		},
-		// {
-		// 	description: "Custom driver, custom function",
-		// 	dialector: &Dialector{
-		// 		DriverName: CustomDriverName,
-		// 		DSN:        InMemoryDSN,
-		// 	},
-		// 	openSuccess:  true,
-		// 	query:        "SELECT my_custom_function()",
-		// 	querySuccess: true,
-		// },
+		{
+			description: "Custom driver, custom function",
+			dialector: &Dialector{
+				DriverName: CustomDriverName,
+				DSN:        InMemoryDSN,
+			},
+			openSuccess:  true,
+			query:        "SELECT my_custom_function()",
+			querySuccess: true,
+		},
 	}
 	for rowIndex, row := range rows {
 		t.Run(fmt.Sprintf("%d/%s", rowIndex, row.description), func(t *testing.T) {
