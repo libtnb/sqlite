@@ -28,7 +28,7 @@ func (m *Migrator) RunWithoutForeignKey(fc func() error) error {
 
 func (m *Migrator) HasTable(value any) bool {
 	var count int
-	_ = m.Migrator.RunWithValue(value, func(stmt *gorm.Statement) error {
+	_ = m.RunWithValue(value, func(stmt *gorm.Statement) error {
 		return m.DB.Raw("SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", stmt.Table).Row().Scan(&count)
 	})
 	return count > 0
@@ -57,7 +57,7 @@ func (m *Migrator) GetTables() (tableList []string, err error) {
 
 func (m *Migrator) HasColumn(value any, name string) bool {
 	var count int
-	_ = m.Migrator.RunWithValue(value, func(stmt *gorm.Statement) error {
+	_ = m.RunWithValue(value, func(stmt *gorm.Statement) error {
 		if stmt.Schema != nil {
 			if field := stmt.Schema.LookUpField(name); field != nil {
 				name = field.DBName

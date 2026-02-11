@@ -243,17 +243,6 @@ func (d *ddl) removeConstraint(name string) bool {
 	return false
 }
 
-func (d *ddl) hasConstraint(name string) bool {
-	reg := compileConstraintRegexp(name)
-
-	for _, f := range d.fields {
-		if reg.MatchString(f) {
-			return true
-		}
-	}
-	return false
-}
-
 func (d *ddl) getColumns() []string {
 	res := []string{}
 
