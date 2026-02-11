@@ -35,8 +35,10 @@ jobs:
           sed -i.bak '/gorm.io\/driver\/sqlite/d' go.mod
           echo "replace github.com/libtnb/sqlite => ../../sqlite/" >> go.mod
           sed -i.bak 's:gorm.io/driver/sqlite:github.com/libtnb/sqlite:g' tests_test.go
+          sed -i.bak 's:"gorm.db":"gorm.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)":g' tests_test.go
           go mod tidy
           cat go.mod
+          cat tests_test.go
       - name: Run tests
         working-directory: ./gorm/tests
         shell: bash
