@@ -179,6 +179,13 @@ func TestParseDDL(t *testing.T) {
 			{NameValue: sql.NullString{String: "ID", Valid: true}, DataTypeValue: sql.NullString{String: "int", Valid: true}, ColumnTypeValue: sql.NullString{String: "int", Valid: true}, NullableValue: sql.NullBool{Valid: true}, DefaultValueValue: sql.NullString{Valid: false}, UniqueValue: sql.NullBool{Valid: true}, PrimaryKeyValue: sql.NullBool{Valid: true}},
 			{NameValue: sql.NullString{String: "unique_code", Valid: true}, DataTypeValue: sql.NullString{String: "text", Valid: true}, ColumnTypeValue: sql.NullString{String: "text", Valid: true}, NullableValue: sql.NullBool{Bool: false, Valid: true}, DefaultValueValue: sql.NullString{Valid: false}, UniqueValue: sql.NullBool{Valid: true}, PrimaryKeyValue: sql.NullBool{Valid: true}},
 		}},
+		{"with_unicode_column_names", []string{
+			"CREATE TABLE `test` (`id` integer NOT NULL,`姓名` text NOT NULL,`年龄` integer)",
+		}, 3, []migrator.ColumnType{
+			{NameValue: sql.NullString{String: "id", Valid: true}, DataTypeValue: sql.NullString{String: "integer", Valid: true}, ColumnTypeValue: sql.NullString{String: "integer", Valid: true}, NullableValue: sql.NullBool{Valid: true}, DefaultValueValue: sql.NullString{Valid: false}, UniqueValue: sql.NullBool{Valid: true}, PrimaryKeyValue: sql.NullBool{Valid: true}},
+			{NameValue: sql.NullString{String: "姓名", Valid: true}, DataTypeValue: sql.NullString{String: "text", Valid: true}, ColumnTypeValue: sql.NullString{String: "text", Valid: true}, NullableValue: sql.NullBool{Bool: false, Valid: true}, DefaultValueValue: sql.NullString{Valid: false}, UniqueValue: sql.NullBool{Valid: true}, PrimaryKeyValue: sql.NullBool{Valid: true}},
+			{NameValue: sql.NullString{String: "年龄", Valid: true}, DataTypeValue: sql.NullString{String: "integer", Valid: true}, ColumnTypeValue: sql.NullString{String: "integer", Valid: true}, NullableValue: sql.NullBool{Bool: true, Valid: true}, DefaultValueValue: sql.NullString{Valid: false}, UniqueValue: sql.NullBool{Valid: true}, PrimaryKeyValue: sql.NullBool{Valid: true}},
+		}},
 		{"with_fk_no_constraint", []string{"CREATE TABLE Docs (ID int NOT NULL,UserID int NOT NULL,FOREIGN KEY (UserID) REFERENCES Users(ID))"}, 3, []migrator.ColumnType{
 			{NameValue: sql.NullString{String: "ID", Valid: true}, DataTypeValue: sql.NullString{String: "int", Valid: true}, ColumnTypeValue: sql.NullString{String: "int", Valid: true}, NullableValue: sql.NullBool{Valid: true}, DefaultValueValue: sql.NullString{Valid: false}, UniqueValue: sql.NullBool{Valid: true}, PrimaryKeyValue: sql.NullBool{Valid: true}},
 			{NameValue: sql.NullString{String: "UserID", Valid: true}, DataTypeValue: sql.NullString{String: "int", Valid: true}, ColumnTypeValue: sql.NullString{String: "int", Valid: true}, NullableValue: sql.NullBool{Valid: true}, DefaultValueValue: sql.NullString{Valid: false}, UniqueValue: sql.NullBool{Valid: true}, PrimaryKeyValue: sql.NullBool{Valid: true}},
@@ -477,6 +484,11 @@ func TestGetColumns(t *testing.T) {
   "menu_id" bigint NOT NULL
 )`,
 			columns: []string{"`id`", "`created_at`", "`updated_at`", "`created_by`", "`updated_by`", "`role_id`", "`menu_id`"},
+		},
+		{
+			name:    "with_unicode_columns",
+			ddl:     "CREATE TABLE `test` (`id` integer NOT NULL,`姓名` text NOT NULL,`年龄` integer)",
+			columns: []string{"`id`", "`姓名`", "`年龄`"},
 		},
 	}
 

@@ -19,7 +19,7 @@ var (
 	checkRegexp        = regexp.MustCompile(`^(?i)CHECK[\s]*\(`)
 	constraintRegexp   = regexp.MustCompile(fmt.Sprintf(`^(?i)CONSTRAINT\s+(?:[%v]?[\w\d_]+[%v]?|\?)\s+`, sqliteSeparator, sqliteSeparator))
 	separatorRegexp    = regexp.MustCompile(fmt.Sprintf("[%v]", sqliteSeparator))
-	columnRegexp       = regexp.MustCompile(fmt.Sprintf(`^[%v]?([\w\d]+)[%v]?\s+([\w\(\)\d]+)(.*)$`, sqliteSeparator, sqliteSeparator))
+	columnRegexp       = regexp.MustCompile(fmt.Sprintf(`^[%v]?([\p{L}\p{N}_]+)[%v]?\s+([\w\(\)\d]+)(.*)$`, sqliteSeparator, sqliteSeparator))
 	defaultValueRegexp = regexp.MustCompile(`(?i) DEFAULT \(?(.+)?\)?( |COLLATE|GENERATED|$)`)
 	regRealDataType    = regexp.MustCompile(`[^\d](\d+)[^\d]?`)
 )
@@ -257,7 +257,7 @@ func (d *ddl) getColumns() []string {
 			continue
 		}
 
-		reg := regexp.MustCompile("^[\"`']?([\\w\\d]+)[\"`']?")
+		reg := regexp.MustCompile("^[\"`']?([\\p{L}\\p{N}_]+)[\"`']?")
 		match := reg.FindStringSubmatch(f)
 
 		if match != nil {
