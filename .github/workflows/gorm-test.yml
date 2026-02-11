@@ -1,4 +1,4 @@
-name: GORM-tests
+name: Test GORM
 on:
   push:
     branches:
