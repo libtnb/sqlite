@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"reflect"
+	"strings"
 	"time"
 )
 
@@ -46,7 +47,23 @@ func newWrappedConnector(driverName, dsn string) (*wrappedConnector, error) {
 	}
 	drv := db.Driver()
 	_ = db.Close()
-	return &wrappedConnector{dsn: dsn, drv: drv}, nil
+	return &wrappedConnector{dsn: injectDSNParams(dsn), drv: drv}, nil
+}
+
+// injectDSNParams appends _texttotime=1 and _inttotime=1 to DSN if not already set,
+// enabling modernc.org/sqlite to return time.Time for datetime columns.
+func injectDSNParams(dsn string) string {
+	for _, param := range []string{"_texttotime", "_inttotime"} {
+		if strings.Contains(dsn, param) {
+			continue
+		}
+		if strings.Contains(dsn, "?") {
+			dsn += "&" + param + "=1"
+		} else {
+			dsn += "?" + param + "=1"
+		}
+	}
+	return dsn
 }
 
 func (c *wrappedConnector) Connect(_ context.Context) (driver.Conn, error) {
