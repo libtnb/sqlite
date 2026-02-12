@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"strconv"
+	"strings"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/callbacks"
@@ -50,11 +51,11 @@ func (d Dialector) Initialize(db *gorm.DB) (err error) {
 	if d.Conn != nil {
 		db.ConnPool = d.Conn
 	} else {
-		connector, err := newWrappedConnector(d.DriverName, d.DSN)
+		conn, err := sql.Open(d.DriverName, injectDSNParams(d.DSN))
 		if err != nil {
 			return err
 		}
-		db.ConnPool = sql.OpenDB(connector)
+		db.ConnPool = conn
 	}
 
 	var version string
@@ -282,4 +283,21 @@ func compareVersion(version1, version2 string) int {
 		}
 	}
 	return 0
+}
+
+// injectDSNParams appends _texttotime=1 and _inttotime=1 to DSN if not already set,
+// enabling modernc.org/sqlite to return time.Time for datetime columns.
+// See https://gitlab.com/cznic/sqlite/-/issues/245
+func injectDSNParams(dsn string) string {
+	for _, param := range []string{"_texttotime", "_inttotime"} {
+		if strings.Contains(dsn, param) {
+			continue
+		}
+		if strings.Contains(dsn, "?") {
+			dsn += "&" + param + "=1"
+		} else {
+			dsn += "?" + param + "=1"
+		}
+	}
+	return dsn
 }
