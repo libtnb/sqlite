@@ -50,7 +50,7 @@ jobs:
         run: grep FAIL -A10 -B3 ${{ runner.os }}-${{ matrix.go }}-tests.out || true
       - name: Save tests results
         if: ${{ always() }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ runner.os }}-${{ matrix.go }}-tests.out
           path: ./gorm/tests/${{ runner.os }}-${{ matrix.go }}-tests.out
