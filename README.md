@@ -84,4 +84,5 @@ Tests run on Linux, macOS, and Windows with the latest two Go releases. The full
 
 - [glebarez/sqlite](https://github.com/glebarez/sqlite)
 - [modernc.org/sqlite](https://gitlab.com/cznic/sqlite)
+- [mattn/go-sqlite3](https://github.com/mattn/go-sqlite3)
 - [gorm.io/gorm](https://github.com/go-gorm/gorm)
