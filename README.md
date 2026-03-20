@@ -1,6 +1,6 @@
 # SQLite driver for GORM
 
-Pure-Go (no CGO) [GORM](https://gorm.io/) driver for SQLite, powered by [modernc.org/sqlite](https://gitlab.com/cznic/sqlite).
+Pure-Go (no CGO) SQLite driver for [GORM](https://gorm.io/), powered by [modernc.org/sqlite](https://gitlab.com/cznic/sqlite).
 
 Drop-in replacement for [go-gorm/sqlite](https://github.com/go-gorm/sqlite) (the official CGO-based driver).
 
