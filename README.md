@@ -57,8 +57,6 @@ Common pragmas:
 | `cache_size(-64000)` | Optional | Set page cache size in KiB (negative value) or pages (positive value). Default is `-2000` (2 MiB). |
 | `synchronous(NORMAL)` | With WAL | Reduces fsync calls in WAL mode with minimal durability risk. See [synchronous](https://www.sqlite.org/pragma.html#pragma_synchronous). |
 
-### Connection Pool
-
 > [!WARNING]
 > SQLite only allows one writer at a time — concurrent writes will inevitably encounter `SQLITE_BUSY` ([details](https://github.com/mattn/go-sqlite3/issues/274)). This cannot be fully avoided, but can be mitigated:
 >
@@ -76,7 +74,7 @@ sqlDB.SetMaxIdleConns(1)
 ```
 
 > [!NOTE]
-> This serializes all database access (reads and writes). If you need concurrent reads, consider using WAL mode with a separate read-only connection pool instead. This approach does not work with `:memory:` databases.
+> This serializes all database access (reads and writes). If you need concurrent reads, consider using WAL mode with a separate read-only connection pool instead. This approach does not work with `:memory:` databases ([details](https://github.com/mattn/go-sqlite3/issues/204)).
 
 ## Testing
 
