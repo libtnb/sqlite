@@ -8,7 +8,7 @@ Drop-in replacement for [go-gorm/sqlite](https://github.com/go-gorm/sqlite) (the
 
 - Pure Go — no C compiler or external libraries required, cross-compiles to any Go-supported platform
 - Compatible with the [GORM test suite](https://github.com/go-gorm/gorm/tree/master/tests) (tested on Linux/macOS/Windows)
-- [JSON1](https://www.sqlite.org/json1.html) and [Math functions](https://www.sqlite.org/lang_mathfunc.html) enabled by default
+- [JSON1](https://www.sqlite.org/json1.html), [Math functions](https://www.sqlite.org/lang_mathfunc.html), [FTS5](https://www.sqlite.org/fts5.html), [R-Tree](https://www.sqlite.org/rtree.html) and [Geopoly](https://www.sqlite.org/geopoly.html) enabled by default
 
 ## Install
 
@@ -59,7 +59,8 @@ Common pragmas:
 
 ### Connection Pool
 
-SQLite only allows one writer at a time. By default, Go's `database/sql` opens multiple connections, which leads to `SQLITE_BUSY` errors under concurrent writes. To avoid this, limit the pool to a single connection:
+> [!WARNING]
+> SQLite only allows one writer at a time. By default, Go's `database/sql` opens multiple connections, which leads to `SQLITE_BUSY` errors under concurrent writes. To avoid this, limit the pool to a single connection:
 
 ```go
 db, err := gorm.Open(sqlite.Open("sqlite.db"), &gorm.Config{})
@@ -69,7 +70,8 @@ sqlDB.SetMaxOpenConns(1)
 sqlDB.SetMaxIdleConns(1)
 ```
 
-> **Note:** This serializes all database access (reads and writes). If you need concurrent reads, consider using WAL mode with a separate read-only connection pool instead.
+> [!NOTE]
+> This serializes all database access (reads and writes). If you need concurrent reads, consider using WAL mode with a separate read-only connection pool instead.
 
 ## Testing
 
