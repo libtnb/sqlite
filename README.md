@@ -60,10 +60,15 @@ Common pragmas:
 ### Connection Pool
 
 > [!WARNING]
-> SQLite only allows one writer at a time. By default, Go's `database/sql` opens multiple connections, which leads to `SQLITE_BUSY` errors under concurrent writes. To avoid this, limit the pool to a single connection:
+> SQLite only allows one writer at a time — concurrent writes will inevitably encounter `SQLITE_BUSY` ([details](https://github.com/mattn/go-sqlite3/issues/274)). This cannot be fully avoided, but can be mitigated:
+>
+> 1. Set `busy_timeout` to allow writers to wait instead of failing immediately
+> 2. Limit the connection pool to a single connection to reduce lock contention
+> 3. Enable WAL mode to allow concurrent reads while writing
 
 ```go
-db, err := gorm.Open(sqlite.Open("sqlite.db"), &gorm.Config{})
+dsn := "sqlite.db?_txlock=immediate&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)"
+db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 
 sqlDB, _ := db.DB()
 sqlDB.SetMaxOpenConns(1)
@@ -71,7 +76,7 @@ sqlDB.SetMaxIdleConns(1)
 ```
 
 > [!NOTE]
-> This serializes all database access (reads and writes). If you need concurrent reads, consider using WAL mode with a separate read-only connection pool instead.
+> This serializes all database access (reads and writes). If you need concurrent reads, consider using WAL mode with a separate read-only connection pool instead. This approach does not work with `:memory:` databases.
 
 ## Testing
 
