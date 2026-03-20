@@ -1,15 +1,14 @@
 # SQLite driver for GORM
 
-A pure-Go SQLite driver for [GORM](https://gorm.io/) — **no CGO, no C compiler, no external dependencies**.
+Pure-Go (no CGO) [GORM](https://gorm.io/) driver for SQLite, powered by [modernc.org/sqlite](https://gitlab.com/cznic/sqlite).
 
-Powered by [modernc.org/sqlite](https://gitlab.com/cznic/sqlite), which transpiles the original SQLite C source into Go.
+Drop-in replacement for [go-gorm/sqlite](https://github.com/go-gorm/sqlite) (the official CGO-based driver).
 
-## Highlights
+## Features
 
-- **100% pure Go** — no CGO, builds anywhere Go builds (Alpine, scratch containers, GCP, cross-compilation)
-- **Passes all GORM tests** — CI runs the [full GORM test suite](https://github.com/go-gorm/gorm/tree/master/tests) on Linux, macOS, and Windows
-- **Built-in features** — [JSON1](https://www.sqlite.org/json1.html), [Math functions](https://www.sqlite.org/lang_mathfunc.html) enabled out of the box
-- **Drop-in replacement** for [go-gorm/sqlite](https://github.com/go-gorm/sqlite) — just change the import path
+- Pure Go — no C compiler or external libraries required, cross-compiles to any Go-supported platform
+- Compatible with the [GORM test suite](https://github.com/go-gorm/gorm/tree/master/tests) (tested on Linux/macOS/Windows)
+- [JSON1](https://www.sqlite.org/json1.html) and [Math functions](https://www.sqlite.org/lang_mathfunc.html) enabled by default
 
 ## Install
 
@@ -36,7 +35,7 @@ db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 
 ### DSN Parameters
 
-Parameters are appended to the DSN as query string:
+Parameters are appended to the DSN as a query string:
 
 ```go
 dsn := "sqlite.db?_txlock=immediate&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)"
@@ -52,34 +51,29 @@ Common pragmas:
 
 | Pragma | Recommended | Description |
 |--------|-------------|-------------|
-| `journal_mode(WAL)` | Yes | [WAL mode](https://www.sqlite.org/wal.html) — significantly improves concurrent read performance. |
+| `journal_mode(WAL)` | Yes | [WAL mode](https://www.sqlite.org/wal.html) — improves concurrent read performance. |
 | `busy_timeout(10000)` | Yes | Wait up to N milliseconds when the database is locked, instead of returning `SQLITE_BUSY` immediately. |
 | `foreign_keys(1)` | If using FKs | Enable foreign key constraint enforcement (off by default in SQLite). |
 | `cache_size(-64000)` | Optional | Set page cache size in KiB (negative value) or pages (positive value). Default is `-2000` (2 MiB). |
 | `synchronous(NORMAL)` | With WAL | Reduces fsync calls in WAL mode with minimal durability risk. See [synchronous](https://www.sqlite.org/pragma.html#pragma_synchronous). |
 
-## Why not the standard GORM SQLite driver?
+### Connection Pool
 
-The [official GORM SQLite driver](https://github.com/go-gorm/sqlite) relies on [mattn/go-sqlite3](https://github.com/mattn/go-sqlite3), which uses CGO. This means:
+SQLite only allows one writer at a time. By default, Go's `database/sql` opens multiple connections, which leads to `SQLITE_BUSY` errors under concurrent writes. To avoid this, limit the pool to a single connection:
 
-- A C compiler must be installed on the build machine
-- Compile-time build tags are needed to enable SQLite features (e.g. JSON support)
-- Cannot build in minimal containers (golang-alpine, scratch, distroless)
-- Cannot build on platforms that disallow GCC execution (e.g. GCP)
+```go
+db, err := gorm.Open(sqlite.Open("sqlite.db"), &gorm.Config{})
 
-This driver eliminates all of these issues by using a pure-Go SQLite implementation.
+sqlDB, _ := db.DB()
+sqlDB.SetMaxOpenConns(1)
+sqlDB.SetMaxIdleConns(1)
+```
+
+> **Note:** This serializes all database access (reads and writes). If you need concurrent reads, consider using WAL mode with a separate read-only connection pool instead.
 
 ## Testing
 
-CI runs on every push against the latest two Go releases:
-
-| OS | Go versions |
-|----|-------------|
-| Linux | stable, oldstable |
-| macOS | stable, oldstable |
-| Windows | stable, oldstable |
-
-The full [GORM test suite](https://github.com/go-gorm/gorm/tree/master/tests) (12k+ test cases) is executed to ensure complete compatibility.
+Tests run on Linux, macOS, and Windows with the latest two Go releases. The full [GORM test suite](https://github.com/go-gorm/gorm/tree/master/tests) (12k+ cases) is included.
 
 ## Credits
 
