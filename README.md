@@ -48,7 +48,7 @@ db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 |-----------|---------|-------------|
 | `_pragma` | `_pragma=journal_mode(WAL)` | Execute a `PRAGMA` statement on each new connection; can be specified multiple times. |
 | `_txlock` | `_txlock=immediate` | Transaction locking mode: `deferred` (default), `immediate`, or `exclusive`. |
-| `_time_format` | `_time_format=sqlite` | How `time.Time` is serialized to TEXT: `sqlite` (default, `2006-01-02 15:04:05.999999999-07:00`) or `datetime` (`2006-01-02 15:04:05`). |
+| `_time_format` | `_time_format=sqlite` | How `time.Time` is serialized to TEXT: `sqlite` (default, `YYYY-MM-DD HH:MM:SS.SSS[+-]HH:MM`) or `datetime` (`YYYY-MM-DD HH:MM:SS`). |
 | `_time_integer_format` | `_time_integer_format=unix` | Store `time.Time` as INTEGER instead of TEXT: `unix`, `unix_milli`, `unix_micro`, or `unix_nano`. Overrides `_time_format`. |
 | `_timezone` | `_timezone=UTC` | Timezone applied when reading and writing time values (parsed by `time.LoadLocation`). |
 
