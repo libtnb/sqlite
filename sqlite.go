@@ -285,18 +285,28 @@ func compareVersion(version1, version2 string) int {
 	return 0
 }
 
-// injectDSNParams appends _texttotime=1 and _inttotime=1 to DSN if not already set,
-// enabling modernc.org/sqlite to return time.Time for datetime columns.
-// See https://gitlab.com/cznic/sqlite/-/issues/245
+// injectDSNParams injects defaults into the DSN to align modernc.org/sqlite's
+// behavior with mattn/go-sqlite3:
+//   - _texttotime=1 / _inttotime=1: return time.Time for datetime columns
+//     (https://gitlab.com/cznic/sqlite/-/issues/245).
+//   - _time_format=sqlite: format time.Time as "2006-01-02 15:04:05.999999999-07:00"
+//     (https://github.com/libtnb/sqlite/issues/15).
+//
+// Existing values in the DSN are preserved.
 func injectDSNParams(dsn string) string {
-	for _, param := range []string{"_texttotime", "_inttotime"} {
-		if strings.Contains(dsn, param) {
+	defaults := [][2]string{
+		{"_texttotime", "1"},
+		{"_inttotime", "1"},
+		{"_time_format", "sqlite"},
+	}
+	for _, kv := range defaults {
+		if strings.Contains(dsn, kv[0]) {
 			continue
 		}
 		if strings.Contains(dsn, "?") {
-			dsn += "&" + param + "=1"
+			dsn += "&" + kv[0] + "=" + kv[1]
 		} else {
-			dsn += "?" + param + "=1"
+			dsn += "?" + kv[0] + "=" + kv[1]
 		}
 	}
 	return dsn
