@@ -192,7 +192,7 @@ func TestTimeWriteFormatNoMonotonic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.Open: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if _, err := db.Exec("CREATE TABLE ts_test (ts TEXT)"); err != nil {
 		t.Fatalf("CREATE TABLE: %v", err)
