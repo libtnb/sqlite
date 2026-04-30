@@ -6,9 +6,9 @@ Drop-in replacement for [go-gorm/sqlite](https://github.com/go-gorm/sqlite) (the
 
 ## Features
 
-- Pure Go — no C compiler or external libraries required, cross-compiles to any Go-supported platform
-- Compatible with the [GORM test suite](https://github.com/go-gorm/gorm/tree/master/tests) (tested on Linux/macOS/Windows)
-- [JSON1](https://www.sqlite.org/json1.html), [Math functions](https://www.sqlite.org/lang_mathfunc.html), [FTS5](https://www.sqlite.org/fts5.html), [R-Tree](https://www.sqlite.org/rtree.html) and [Geopoly](https://www.sqlite.org/geopoly.html) enabled by default
+- Pure Go (no C compiler or external libraries required); cross-compiles to any Go-supported platform
+- Compatible with the [GORM test suite](https://github.com/go-gorm/gorm/tree/master/tests) (tested on Linux, macOS, and Windows)
+- [JSON1](https://www.sqlite.org/json1.html), [Math functions](https://www.sqlite.org/lang_mathfunc.html), [FTS5](https://www.sqlite.org/fts5.html), [R-Tree](https://www.sqlite.org/rtree.html), and [Geopoly](https://www.sqlite.org/geopoly.html) enabled by default
 
 ## Install
 
@@ -44,23 +44,23 @@ db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 
 | Parameter | Example | Description |
 |-----------|---------|-------------|
-| `_pragma` | `_pragma=journal_mode(WAL)` | Execute a `PRAGMA` statement on each new connection. Can be specified multiple times. |
+| `_pragma` | `_pragma=journal_mode(WAL)` | Execute a `PRAGMA` statement on each new connection; can be specified multiple times. |
 | `_txlock` | `_txlock=immediate` | Transaction locking mode. Values: `deferred` (default), `immediate`, `exclusive`. |
 
 Common pragmas:
 
 | Pragma | Recommended | Description |
 |--------|-------------|-------------|
-| `journal_mode(WAL)` | Yes | [WAL mode](https://www.sqlite.org/wal.html) — improves concurrent read performance. |
-| `busy_timeout(N)` | Optional | Wait up to N milliseconds on `SQLITE_BUSY`. Already set to 5s by default; override if you need a different value. |
-| `foreign_keys(1)` | If using FKs | Enable foreign key constraint enforcement (off by default in SQLite). |
-| `cache_size(-64000)` | Optional | Set page cache size in KiB (negative value) or pages (positive value). Default is `-2000` (2 MiB). |
-| `synchronous(NORMAL)` | With WAL | Reduces fsync calls in WAL mode with minimal durability risk. See [synchronous](https://www.sqlite.org/pragma.html#pragma_synchronous). |
+| `journal_mode(WAL)` | Yes | Enable [WAL mode](https://www.sqlite.org/wal.html) to improve concurrent read performance. |
+| `busy_timeout(N)` | Optional | Wait up to N milliseconds on `SQLITE_BUSY`. Defaults to 5s; override to change. |
+| `cache_size(-64000)` | Optional | Set page cache size in KiB (negative value) or pages (positive value). Defaults to `-2000` (2 MiB). |
+| `synchronous(NORMAL)` | With WAL | Reduce fsync calls in WAL mode with minimal durability risk. See [synchronous](https://www.sqlite.org/pragma.html#pragma_synchronous). |
+| `foreign_keys(1)` | If using FKs | Enable foreign key constraint enforcement (disabled by default in SQLite). |
 
 > [!WARNING]
-> SQLite only allows one writer at a time — concurrent writes will inevitably encounter `SQLITE_BUSY` ([details](https://github.com/mattn/go-sqlite3/issues/274)). This cannot be fully avoided, but can be mitigated:
+> SQLite only allows one writer at a time, so concurrent writes will inevitably encounter `SQLITE_BUSY` ([details](https://github.com/mattn/go-sqlite3/issues/274)). This cannot be fully avoided, but can be mitigated:
 >
-> 1. Use `busy_timeout` to wait instead of failing immediately (5s by default)
+> 1. Tune `busy_timeout` to control how long writers wait before failing (5s by default)
 > 2. Limit the connection pool to a single connection to reduce lock contention
 > 3. Enable WAL mode to allow concurrent reads while writing
 

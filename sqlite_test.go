@@ -253,7 +253,7 @@ func TestInjectDSNParams(t *testing.T) {
 			notWant: []string{"busy_timeout(5000)"},
 		},
 		{
-			name: "user has unrelated _pragma — busy_timeout still injected",
+			name: "user has unrelated _pragma, busy_timeout still injected",
 			in:   "test.db?_pragma=foreign_keys(on)",
 			want: []string{"_pragma=foreign_keys(on)", "_pragma=busy_timeout(5000)", "_texttotime=1", "_inttotime=1", "_time_format=sqlite"},
 		},
@@ -307,7 +307,7 @@ func TestSplitDSN(t *testing.T) {
 		{"test.db?cache=shared", "test.db", "cache=shared"},
 		{"test.db?cache=shared&_pragma=foo", "test.db", "cache=shared&_pragma=foo"},
 		{"file:/tmp/x.db?cache=shared", "file:/tmp/x.db", "cache=shared"},
-		{"?onlyquery=1", "", "onlyquery=1"}, // pathological — modernc rejects it too
+		{"?onlyquery=1", "", "onlyquery=1"}, // pathological: modernc rejects it too
 		{"a?b?c", "a", "b?c"},               // first '?' wins
 	}
 	for _, tt := range tests {
@@ -354,7 +354,7 @@ func TestTimeWriteFormatNoMonotonic(t *testing.T) {
 
 			for _, marker := range []string{"m=+", "m=-", " MST", " UTC", " CEST"} {
 				if strings.Contains(raw, marker) {
-					t.Errorf("stored time %q contains %q — driver fell back to t.String()", raw, marker)
+					t.Errorf("stored time %q contains %q: driver fell back to t.String()", raw, marker)
 				}
 			}
 			if _, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", raw); err != nil {
@@ -366,7 +366,7 @@ func TestTimeWriteFormatNoMonotonic(t *testing.T) {
 
 // TestDefaultBusyTimeout verifies the connection comes up with a 5s busy
 // timeout by default (matching mattn/go-sqlite3), and that a user-supplied
-// _pragma=busy_timeout overrides the default — across various DSN shapes.
+// _pragma=busy_timeout overrides the default across various DSN shapes.
 func TestDefaultBusyTimeout(t *testing.T) {
 	tests := []struct {
 		name string
