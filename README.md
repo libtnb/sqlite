@@ -38,7 +38,7 @@ db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 Parameters are appended to the DSN as a query string:
 
 ```go
-dsn := "sqlite.db?_txlock=immediate&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)"
+dsn := "sqlite.db?_txlock=immediate&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)"
 db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 ```
 
@@ -52,7 +52,7 @@ Common pragmas:
 | Pragma | Recommended | Description |
 |--------|-------------|-------------|
 | `journal_mode(WAL)` | Yes | [WAL mode](https://www.sqlite.org/wal.html) — improves concurrent read performance. |
-| `busy_timeout(10000)` | Yes | Wait up to N milliseconds when the database is locked, instead of returning `SQLITE_BUSY` immediately. |
+| `busy_timeout(N)` | Optional | Wait up to N milliseconds on `SQLITE_BUSY`. Already set to 5s by default; override if you need a different value. |
 | `foreign_keys(1)` | If using FKs | Enable foreign key constraint enforcement (off by default in SQLite). |
 | `cache_size(-64000)` | Optional | Set page cache size in KiB (negative value) or pages (positive value). Default is `-2000` (2 MiB). |
 | `synchronous(NORMAL)` | With WAL | Reduces fsync calls in WAL mode with minimal durability risk. See [synchronous](https://www.sqlite.org/pragma.html#pragma_synchronous). |
@@ -60,12 +60,12 @@ Common pragmas:
 > [!WARNING]
 > SQLite only allows one writer at a time — concurrent writes will inevitably encounter `SQLITE_BUSY` ([details](https://github.com/mattn/go-sqlite3/issues/274)). This cannot be fully avoided, but can be mitigated:
 >
-> 1. Set `busy_timeout` to allow writers to wait instead of failing immediately
+> 1. Use `busy_timeout` to wait instead of failing immediately (5s by default)
 > 2. Limit the connection pool to a single connection to reduce lock contention
 > 3. Enable WAL mode to allow concurrent reads while writing
 
 ```go
-dsn := "sqlite.db?_txlock=immediate&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)"
+dsn := "sqlite.db?_txlock=immediate&_pragma=journal_mode(WAL)"
 db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 
 sqlDB, _ := db.DB()

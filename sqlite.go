@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -291,23 +292,54 @@ func compareVersion(version1, version2 string) int {
 //     (https://gitlab.com/cznic/sqlite/-/issues/245).
 //   - _time_format=sqlite: format time.Time as "2006-01-02 15:04:05.999999999-07:00"
 //     (https://github.com/libtnb/sqlite/issues/15).
+//   - _pragma=busy_timeout(5000): default 5s busy timeout, just like
+//     mattn/go-sqlite3 does, to avoid "database is locked" errors.
 //
 // Existing values in the DSN are preserved.
 func injectDSNParams(dsn string) string {
-	defaults := [][2]string{
-		{"_texttotime", "1"},
-		{"_inttotime", "1"},
-		{"_time_format", "sqlite"},
+	path, rawQuery := splitDSN(dsn)
+	if path == "" {
+		return dsn
 	}
-	for _, kv := range defaults {
-		if strings.Contains(dsn, kv[0]) {
-			continue
-		}
-		if strings.Contains(dsn, "?") {
-			dsn += "&" + kv[0] + "=" + kv[1]
-		} else {
-			dsn += "?" + kv[0] + "=" + kv[1]
+	values, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return dsn
+	}
+
+	var additions []string
+	addIfMissing := func(key, value string) {
+		if _, ok := values[key]; !ok {
+			additions = append(additions, key+"="+value)
 		}
 	}
-	return dsn
+	addIfMissing("_texttotime", "1")
+	addIfMissing("_inttotime", "1")
+	addIfMissing("_time_format", "sqlite")
+
+	hasBusyTimeout := false
+	for _, p := range values["_pragma"] {
+		if strings.Contains(strings.ToLower(p), "busy_timeout") {
+			hasBusyTimeout = true
+			break
+		}
+	}
+	if !hasBusyTimeout {
+		additions = append(additions, "_pragma=busy_timeout(5000)")
+	}
+
+	if len(additions) == 0 {
+		return dsn
+	}
+	if rawQuery == "" {
+		return path + "?" + strings.Join(additions, "&")
+	}
+	return path + "?" + rawQuery + "&" + strings.Join(additions, "&")
+}
+
+// splitDSN splits a DSN into its path and raw-query parts at the first '?'.
+func splitDSN(dsn string) (path, query string) {
+	if i := strings.IndexRune(dsn, '?'); i >= 0 {
+		return dsn[:i], dsn[i+1:]
+	}
+	return dsn, ""
 }
