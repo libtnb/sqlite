@@ -1,5 +1,13 @@
 # SQLite driver for GORM
 
+[![Doc](https://pkg.go.dev/badge/github.com/libtnb/sqlite)](https://pkg.go.dev/github.com/libtnb/sqlite)
+[![Go](https://img.shields.io/github/go-mod/go-version/libtnb/sqlite)](https://go.dev/)
+[![Release](https://img.shields.io/github/release/libtnb/sqlite.svg)](https://github.com/libtnb/sqlite/releases)
+[![Test](https://github.com/libtnb/sqlite/actions/workflows/test.yml/badge.svg)](https://github.com/libtnb/sqlite/actions)
+[![Report Card](https://goreportcard.com/badge/github.com/libtnb/sqlite)](https://goreportcard.com/report/github.com/libtnb/sqlite)
+[![Stars](https://img.shields.io/github/stars/libtnb/sqlite?style=flat)](https://github.com/libtnb/sqlite)
+[![License](https://img.shields.io/github/license/libtnb/sqlite)](https://opensource.org/license/MIT)
+
 Pure-Go (no CGO) SQLite driver for [GORM](https://gorm.io/), powered by [modernc.org/sqlite](https://gitlab.com/cznic/sqlite).
 
 Drop-in replacement for [go-gorm/sqlite](https://github.com/go-gorm/sqlite) (the official CGO-based driver).
