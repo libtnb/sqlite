@@ -14,11 +14,11 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: sqlite
       - name: Check out GORM
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: go-gorm/gorm
           path: gorm
