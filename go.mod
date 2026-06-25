@@ -3,7 +3,7 @@ module github.com/libtnb/sqlite
 go 1.25.0
 
 require (
-	gorm.io/gorm v1.31.1
+	gorm.io/gorm v1.31.2
 	modernc.org/sqlite v1.53.0
 )
 
