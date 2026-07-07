@@ -40,7 +40,9 @@ func closeTestDB(t *testing.T, db *gorm.DB) {
 func tableDDL(t *testing.T, db *gorm.DB, table string) string {
 	t.Helper()
 	var ddl string
-	db.Raw("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&ddl)
+	if err := db.Raw("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&ddl).Error; err != nil {
+		t.Fatalf("querying sqlite_master: %v", err)
+	}
 	return ddl
 }
 
@@ -97,12 +99,16 @@ func TestDropColumnWithForeignKeysEnabled(t *testing.T) {
 	}
 
 	var childCount int
-	db.Raw("SELECT count(*) FROM fk_children").Scan(&childCount)
+	if err := db.Raw("SELECT count(*) FROM fk_children").Scan(&childCount).Error; err != nil {
+		t.Fatalf("querying fk_children: %v", err)
+	}
 	if childCount != 1 {
 		t.Errorf("child rows after DropColumn = %d, want 1", childCount)
 	}
 	var fkEnabled int
-	db.Raw("PRAGMA foreign_keys").Scan(&fkEnabled)
+	if err := db.Raw("PRAGMA foreign_keys").Scan(&fkEnabled).Error; err != nil {
+		t.Fatalf("querying foreign_keys pragma: %v", err)
+	}
 	if fkEnabled != 1 {
 		t.Errorf("foreign_keys not restored, got %d", fkEnabled)
 	}
@@ -188,7 +194,9 @@ func TestRecreateTablePreservesIndexesAndTriggers(t *testing.T) {
 	}
 
 	var names []string
-	db.Raw("SELECT name FROM sqlite_master WHERE tbl_name = 'idx_table' AND type IN ('index','trigger')").Scan(&names)
+	if err := db.Raw("SELECT name FROM sqlite_master WHERE tbl_name = 'idx_table' AND type IN ('index','trigger')").Scan(&names).Error; err != nil {
+		t.Fatalf("querying sqlite_master: %v", err)
+	}
 	got := strings.Join(names, ",")
 	if !strings.Contains(got, "idx_keep") {
 		t.Errorf("index idx_keep lost after DropColumn, remaining: %v", names)
@@ -205,7 +213,9 @@ func TestRecreateTablePreservesIndexesAndTriggers(t *testing.T) {
 		t.Fatal(err)
 	}
 	var auditCount int
-	db.Raw("SELECT count(*) FROM audit").Scan(&auditCount)
+	if err := db.Raw("SELECT count(*) FROM audit").Scan(&auditCount).Error; err != nil {
+		t.Fatalf("querying audit: %v", err)
+	}
 	if auditCount != 1 {
 		t.Errorf("trigger did not fire after rebuild, audit rows = %d", auditCount)
 	}
@@ -386,7 +396,9 @@ func TestCompositePrimaryKeyAutoIncrement(t *testing.T) {
 	}
 
 	var pkCount int
-	db.Raw("SELECT count(*) FROM pragma_table_info('composite_keys') WHERE pk > 0").Scan(&pkCount)
+	if err := db.Raw("SELECT count(*) FROM pragma_table_info('composite_keys') WHERE pk > 0").Scan(&pkCount).Error; err != nil {
+		t.Fatalf("querying pragma_table_info: %v", err)
+	}
 	if pkCount != 2 {
 		t.Errorf("primary key column count = %d, want 2 (DDL: %s)", pkCount, tableDDL(t, db, "composite_keys"))
 	}
