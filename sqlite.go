@@ -204,7 +204,8 @@ func (d Dialector) QuoteTo(writer clause.Writer, str string) {
 }
 
 func (d Dialector) Explain(sql string, vars ...any) string {
-	return logger.ExplainSQL(sql, nil, `"`, vars...)
+	// single quotes: double quotes are identifier quoting in SQLite
+	return logger.ExplainSQL(sql, nil, `'`, vars...)
 }
 
 func (d Dialector) DataTypeOf(field *schema.Field) string {
@@ -212,7 +213,7 @@ func (d Dialector) DataTypeOf(field *schema.Field) string {
 	case schema.Bool:
 		return "numeric"
 	case schema.Int, schema.Uint:
-		if field.AutoIncrement {
+		if field.AutoIncrement && !isCompositePrimaryKey(field) {
 			// doesn't check `PrimaryKey`, to keep backward compatibility
 			// https://www.sqlite.org/autoinc.html
 			return "integer PRIMARY KEY AUTOINCREMENT"
@@ -237,6 +238,15 @@ func (d Dialector) DataTypeOf(field *schema.Field) string {
 	return string(field.DataType)
 }
 
+// isCompositePrimaryKey reports whether field is part of a multi-column
+// primary key. AUTOINCREMENT only works on a single-column INTEGER PRIMARY
+// KEY; emitting it for a composite key would silently reduce the primary key
+// to that one column (GORM skips the table-level PRIMARY KEY clause when a
+// field type already contains PRIMARY KEY).
+func isCompositePrimaryKey(field *schema.Field) bool {
+	return field.PrimaryKey && field.Schema != nil && len(field.Schema.PrimaryFields) > 1
+}
+
 func (d Dialector) SavePoint(tx *gorm.DB, name string) error {
 	tx.Exec("SAVEPOINT " + name)
 	return nil
@@ -251,12 +261,14 @@ func (d Dialector) Translate(err error) error {
 	switch terr := err.(type) {
 	case interface{ Code() int }:
 		switch terr.Code() {
-		case sqlite3.SQLITE_CONSTRAINT_UNIQUE:
-			return gorm.ErrDuplicatedKey
-		case sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY:
+		case sqlite3.SQLITE_CONSTRAINT_UNIQUE,
+			sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY,
+			sqlite3.SQLITE_CONSTRAINT_ROWID:
 			return gorm.ErrDuplicatedKey
 		case sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY:
 			return gorm.ErrForeignKeyViolated
+		case sqlite3.SQLITE_CONSTRAINT_CHECK:
+			return gorm.ErrCheckConstraintViolated
 		}
 	}
 	return err
