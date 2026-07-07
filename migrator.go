@@ -2,7 +2,9 @@ package sqlite
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"gorm.io/gorm"
@@ -16,14 +18,34 @@ type Migrator struct {
 }
 
 func (m *Migrator) RunWithoutForeignKey(fc func() error) error {
-	var enabled int
-	m.DB.Raw("PRAGMA foreign_keys").Scan(&enabled)
-	if enabled == 1 {
-		m.DB.Exec("PRAGMA foreign_keys = OFF")
-		defer m.DB.Exec("PRAGMA foreign_keys = ON")
+	return m.runWithoutForeignKey(func(*gorm.DB) error { return fc() })
+}
+
+// runWithoutForeignKey runs fc with foreign key enforcement disabled.
+// PRAGMA foreign_keys is per-connection, so the PRAGMAs and fc must run on
+// the same connection; with a connection pool they could otherwise be sent
+// to different connections.
+func (m *Migrator) runWithoutForeignKey(fc func(tx *gorm.DB) error) error {
+	run := func(tx *gorm.DB) error {
+		var enabled int
+		if err := tx.Raw("PRAGMA foreign_keys").Scan(&enabled).Error; err != nil {
+			return err
+		}
+		if enabled == 1 {
+			if err := tx.Exec("PRAGMA foreign_keys = OFF").Error; err != nil {
+				return err
+			}
+			defer tx.Exec("PRAGMA foreign_keys = ON")
+		}
+		return fc(tx)
 	}
 
-	return fc()
+	if sqlDB, err := m.DB.DB(); err != nil || sqlDB == nil {
+		// no dedicated connection available (custom ConnPool or an ongoing
+		// transaction, which is single-connection already)
+		return run(m.DB)
+	}
+	return m.DB.Connection(run)
 }
 
 func (m *Migrator) HasTable(value any) bool {
@@ -35,13 +57,13 @@ func (m *Migrator) HasTable(value any) bool {
 }
 
 func (m *Migrator) DropTable(values ...any) error {
-	return m.RunWithoutForeignKey(func() error {
+	return m.runWithoutForeignKey(func(tx *gorm.DB) error {
 		values = m.ReorderModels(values, false)
-		tx := m.DB.Session(&gorm.Session{})
+		session := tx.Session(&gorm.Session{})
 
 		for i := len(values) - 1; i >= 0; i-- {
 			if err := m.RunWithValue(values[i], func(stmt *gorm.Statement) error {
-				return tx.Exec("DROP TABLE IF EXISTS ?", clause.Table{Name: stmt.Table}).Error
+				return session.Exec("DROP TABLE IF EXISTS ?", clause.Table{Name: stmt.Table}).Error
 			}); err != nil {
 				return err
 			}
@@ -52,7 +74,9 @@ func (m *Migrator) DropTable(values ...any) error {
 }
 
 func (m *Migrator) GetTables() (tableList []string, err error) {
-	return tableList, m.DB.Raw("SELECT name FROM sqlite_master where type=?", "table").Scan(&tableList).Error
+	return tableList, m.DB.Raw(
+		"SELECT name FROM sqlite_master WHERE type = ? AND name NOT LIKE ?", "table", "sqlite_%",
+	).Scan(&tableList).Error
 }
 
 func (m *Migrator) HasColumn(value any, name string) bool {
@@ -66,8 +90,8 @@ func (m *Migrator) HasColumn(value any, name string) bool {
 
 		if name != "" {
 			_ = m.DB.Raw(
-				"SELECT count(*) FROM sqlite_master WHERE type = ? AND tbl_name = ? AND (sql LIKE ? OR sql LIKE ? OR sql LIKE ? OR sql LIKE ? OR sql LIKE ?)",
-				"table", stmt.Table, `%"`+name+`" %`, `%`+name+` %`, "%`"+name+"`%", "%["+name+"]%", "%\t"+name+"\t%",
+				"SELECT count(*) FROM pragma_table_info(?) WHERE name = ? COLLATE NOCASE",
+				stmt.Table, name,
 			).Row().Scan(&count)
 		}
 		return nil
@@ -76,8 +100,11 @@ func (m *Migrator) HasColumn(value any, name string) bool {
 }
 
 func (m *Migrator) AlterColumn(value any, name string) error {
-	return m.RunWithoutForeignKey(func() error {
-		return m.recreateTable(value, nil, func(ddl *ddl, stmt *gorm.Statement) (*ddl, []any, error) {
+	return m.runWithoutForeignKey(func(tx *gorm.DB) error {
+		return m.recreateTable(tx, value, nil, func(ddl *ddl, stmt *gorm.Statement) (*ddl, []any, error) {
+			if stmt.Schema == nil {
+				return nil, nil, fmt.Errorf("failed to alter field with name %v: model with schema is required", name)
+			}
 			if field := stmt.Schema.LookUpField(name); field != nil {
 				var sqlArgs []any
 				for i, f := range ddl.fields {
@@ -127,7 +154,9 @@ func (m *Migrator) ColumnTypes(value any) ([]gorm.ColumnType, error) {
 			return err
 		}
 		defer func() {
-			err = rows.Close()
+			if cerr := rows.Close(); err == nil {
+				err = cerr
+			}
 		}()
 
 		var rawColumnTypes []*sql.ColumnType
@@ -155,13 +184,19 @@ func (m *Migrator) ColumnTypes(value any) ([]gorm.ColumnType, error) {
 }
 
 func (m *Migrator) DropColumn(value any, name string) error {
-	return m.recreateTable(value, nil, func(ddl *ddl, stmt *gorm.Statement) (*ddl, []any, error) {
-		if field := stmt.Schema.LookUpField(name); field != nil {
-			name = field.DBName
-		}
+	return m.runWithoutForeignKey(func(tx *gorm.DB) error {
+		return m.recreateTable(tx, value, nil, func(ddl *ddl, stmt *gorm.Statement) (*ddl, []any, error) {
+			if stmt.Schema != nil {
+				if field := stmt.Schema.LookUpField(name); field != nil {
+					name = field.DBName
+				}
+			}
 
-		ddl.removeColumn(name)
-		return ddl, nil, nil
+			if !ddl.removeColumn(name) {
+				return nil, nil, fmt.Errorf("failed to drop column %v: not found in the DDL of table %v", name, stmt.Table)
+			}
+			return ddl, nil, nil
+		})
 	})
 }
 
@@ -169,24 +204,26 @@ func (m *Migrator) CreateConstraint(value any, name string) error {
 	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
 		constraint, table := m.GuessConstraintInterfaceAndTable(stmt, name)
 
-		return m.recreateTable(value, &table,
-			func(ddl *ddl, stmt *gorm.Statement) (*ddl, []any, error) {
-				var (
-					constraintName   string
-					constraintSql    string
-					constraintValues []any
-				)
+		return m.runWithoutForeignKey(func(tx *gorm.DB) error {
+			return m.recreateTable(tx, value, &table,
+				func(ddl *ddl, stmt *gorm.Statement) (*ddl, []any, error) {
+					var (
+						constraintName   string
+						constraintSql    string
+						constraintValues []any
+					)
 
-				if constraint != nil {
-					constraintName = constraint.GetName()
-					constraintSql, constraintValues = constraint.Build()
-				} else {
-					return nil, nil, nil
-				}
+					if constraint != nil {
+						constraintName = constraint.GetName()
+						constraintSql, constraintValues = constraint.Build()
+					} else {
+						return nil, nil, nil
+					}
 
-				ddl.addConstraint(constraintName, constraintSql)
-				return ddl, constraintValues, nil
-			})
+					ddl.addConstraint(constraintName, constraintSql)
+					return ddl, constraintValues, nil
+				})
+		})
 	})
 }
 
@@ -197,31 +234,39 @@ func (m *Migrator) DropConstraint(value any, name string) error {
 			name = constraint.GetName()
 		}
 
-		return m.recreateTable(value, &table,
-			func(ddl *ddl, stmt *gorm.Statement) (*ddl, []any, error) {
-				ddl.removeConstraint(name)
-				return ddl, nil, nil
-			})
+		return m.runWithoutForeignKey(func(tx *gorm.DB) error {
+			return m.recreateTable(tx, value, &table,
+				func(ddl *ddl, stmt *gorm.Statement) (*ddl, []any, error) {
+					ddl.removeConstraint(name)
+					return ddl, nil, nil
+				})
+		})
 	})
 }
 
 func (m *Migrator) HasConstraint(value any, name string) bool {
-	var count int64
+	var has bool
 	_ = m.RunWithValue(value, func(stmt *gorm.Statement) error {
 		constraint, table := m.GuessConstraintInterfaceAndTable(stmt, name)
 		if constraint != nil {
 			name = constraint.GetName()
 		}
 
-		_ = m.DB.Raw(
-			"SELECT count(*) FROM sqlite_master WHERE type = ? AND tbl_name = ? AND (sql LIKE ? OR sql LIKE ? OR sql LIKE ? OR sql LIKE ? OR sql LIKE ?)",
-			"table", table, `%CONSTRAINT "`+name+`" %`, `%CONSTRAINT `+name+` %`, "%CONSTRAINT `"+name+"`%", "%CONSTRAINT ["+name+"]%", "%CONSTRAINT \t"+name+"\t%",
-		).Row().Scan(&count)
+		rawDDL, err := m.getRawDDL(table)
+		if err != nil {
+			return err
+		}
+		parsed, err := parseDDL(rawDDL)
+		if err != nil {
+			return err
+		}
 
+		reg := compileConstraintRegexp(name)
+		has = slices.ContainsFunc(parsed.fields, reg.MatchString)
 		return nil
 	})
 
-	return count > 0
+	return has
 }
 
 func (m *Migrator) CurrentDatabase() (name string) {
@@ -365,16 +410,24 @@ func (m *Migrator) GetIndexes(value any) ([]gorm.Index, error) {
 
 func (m *Migrator) getRawDDL(table string) (string, error) {
 	var createSQL string
-	_ = m.DB.Raw("SELECT sql FROM sqlite_master WHERE type = ? AND tbl_name = ? AND name = ?", "table", table, table).Row().Scan(&createSQL)
+	err := m.DB.Raw("SELECT sql FROM sqlite_master WHERE type = ? AND tbl_name = ? AND name = ?", "table", table, table).Row().Scan(&createSQL)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
 
-	if m.DB.Error != nil {
-		return "", m.DB.Error
+	if createSQL == "" {
+		return "", fmt.Errorf("failed to get DDL of table %q: table not found", table)
 	}
 	return createSQL, nil
 }
 
+// recreateTable implements ALTER TABLE operations SQLite doesn't support by
+// creating a modified copy of the table, moving the data over, dropping the
+// original and renaming the copy back. execDB must be pinned to a single
+// connection (see runWithoutForeignKey) so the PRAGMAs used along the way
+// apply to the connection that runs the transaction.
 func (m *Migrator) recreateTable(
-	value any, tablePtr *string,
+	execDB *gorm.DB, value any, tablePtr *string,
 	getCreateSQL func(ddl *ddl, stmt *gorm.Statement) (sql *ddl, sqlArgs []any, err error),
 ) error {
 	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
@@ -409,7 +462,17 @@ func (m *Migrator) recreateTable(
 		columns := createDDL.getColumns()
 		createSQL := createDDL.compile()
 
-		return m.DB.Transaction(func(tx *gorm.DB) error {
+		// indexes and triggers are dropped together with the old table; save
+		// their DDL so they can be recreated on the rebuilt table.
+		var auxDDLs []string
+		if err := execDB.Raw(
+			"SELECT sql FROM sqlite_master WHERE tbl_name = ? AND type IN (?, ?) AND sql IS NOT NULL",
+			table, "index", "trigger",
+		).Scan(&auxDDLs).Error; err != nil {
+			return err
+		}
+
+		return execDB.Transaction(func(tx *gorm.DB) error {
 			if err := tx.Exec(createSQL, sqlArgs...).Error; err != nil {
 				return err
 			}
@@ -417,12 +480,31 @@ func (m *Migrator) recreateTable(
 			queries := []string{
 				fmt.Sprintf("INSERT INTO `%v`(%v) SELECT %v FROM `%v`", newTableName, strings.Join(columns, ","), strings.Join(columns, ","), table),
 				fmt.Sprintf("DROP TABLE `%v`", table),
-				fmt.Sprintf("ALTER TABLE `%v` RENAME TO `%v`", newTableName, table),
 			}
 			for _, query := range queries {
 				if err := tx.Exec(query).Error; err != nil {
 					return err
 				}
+			}
+
+			// legacy_alter_table keeps RENAME from re-resolving views that
+			// reference the table; they point at the original name and become
+			// valid again right after the rename.
+			if err := tx.Exec("PRAGMA legacy_alter_table = ON").Error; err != nil {
+				return err
+			}
+			renameErr := tx.Exec(fmt.Sprintf("ALTER TABLE `%v` RENAME TO `%v`", newTableName, table)).Error
+			if err := tx.Exec("PRAGMA legacy_alter_table = OFF").Error; renameErr == nil {
+				renameErr = err
+			}
+			if renameErr != nil {
+				return renameErr
+			}
+
+			// recreate the saved indexes and triggers; ones referencing a
+			// column that no longer exists cannot apply anymore and are skipped
+			for _, aux := range auxDDLs {
+				_ = tx.Exec(aux).Error
 			}
 			return nil
 		})
