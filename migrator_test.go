@@ -22,7 +22,19 @@ func openTestDB(t *testing.T, dsnParams string) *gorm.DB {
 	if err != nil {
 		t.Fatalf("gorm.Open: %v", err)
 	}
+	closeTestDB(t, db)
 	return db
+}
+
+// closeTestDB closes the pool on test cleanup; Windows cannot remove the
+// t.TempDir() database file while connections still hold it open.
+func closeTestDB(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
 }
 
 func tableDDL(t *testing.T, db *gorm.DB, table string) string {
@@ -313,6 +325,7 @@ func TestTranslateCheckConstraint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	closeTestDB(t, db)
 	if err := db.AutoMigrate(&CheckedModel{}); err != nil {
 		t.Fatal(err)
 	}
