@@ -23,7 +23,7 @@ jobs:
           repository: go-gorm/gorm
           path: gorm
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           cache: true
           go-version: ${{ matrix.go }}
