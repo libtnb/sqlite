@@ -17,8 +17,14 @@ type Migrator struct {
 	migrator.Migrator
 }
 
-func (m *Migrator) RunWithoutForeignKey(fc func() error) error {
-	return m.runWithoutForeignKey(func(*gorm.DB) error { return fc() })
+// RunWithoutForeignKey runs fc with foreign key enforcement disabled.
+//
+// fc receives the connection the PRAGMAs were applied to and must run all its
+// work on it: the pool may be limited to a single connection, so statements
+// issued on the original *gorm.DB would wait for the connection fc holds.
+// Nested migrator calls belong on tx as well, via tx.Migrator().
+func (m *Migrator) RunWithoutForeignKey(fc func(tx *gorm.DB) error) error {
+	return m.runWithoutForeignKey(fc)
 }
 
 // runWithoutForeignKey runs fc with foreign key enforcement disabled.
@@ -252,7 +258,7 @@ func (m *Migrator) HasConstraint(value any, name string) bool {
 			name = constraint.GetName()
 		}
 
-		rawDDL, err := m.getRawDDL(table)
+		rawDDL, err := m.getRawDDL(m.DB, table)
 		if err != nil {
 			return err
 		}
@@ -408,9 +414,12 @@ func (m *Migrator) GetIndexes(value any) ([]gorm.Index, error) {
 	return indexes, err
 }
 
-func (m *Migrator) getRawDDL(table string) (string, error) {
+// getRawDDL reads the CREATE TABLE statement of table. db selects the
+// connection to read from: callers running inside a pinned connection must
+// pass it, querying m.DB instead would wait for a second connection.
+func (m *Migrator) getRawDDL(db *gorm.DB, table string) (string, error) {
 	var createSQL string
-	err := m.DB.Raw("SELECT sql FROM sqlite_master WHERE type = ? AND tbl_name = ? AND name = ?", "table", table, table).Row().Scan(&createSQL)
+	err := db.Raw("SELECT sql FROM sqlite_master WHERE type = ? AND tbl_name = ? AND name = ?", "table", table, table).Row().Scan(&createSQL)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return "", err
 	}
@@ -436,7 +445,7 @@ func (m *Migrator) recreateTable(
 			table = *tablePtr
 		}
 
-		rawDDL, err := m.getRawDDL(table)
+		rawDDL, err := m.getRawDDL(execDB, table)
 		if err != nil {
 			return err
 		}

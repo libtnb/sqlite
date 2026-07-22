@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -479,6 +480,125 @@ func TestDefaultValueRoundTrip(t *testing.T) {
 	}
 	if dv, ok := d.columns[0].DefaultValue(); !ok || dv != "hi" {
 		t.Errorf("legacy DefaultValue = (%q,%v), want (hi,true)", dv, ok)
+	}
+}
+
+type fkParent struct {
+	Id int `gorm:"column:id;primarykey"`
+}
+
+func (fkParent) TableName() string { return "fk_parents" }
+
+type fkChild struct {
+	ParentId int      `gorm:"column:parent_id"`
+	Parent   fkParent `gorm:"foreignkey:ParentId;references:Id"`
+	Extra    string   `gorm:"column:extra"`
+}
+
+func (fkChild) TableName() string { return "fk_children" }
+
+// openSingleConnDB serializes the pool on one connection, which is a common
+// setup for SQLite because only one writer is allowed anyway.
+func openSingleConnDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := openTestDB(t, "_pragma=foreign_keys(1)")
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	return db
+}
+
+// mustNotBlock fails instead of hanging the test binary forever.
+func mustNotBlock(t *testing.T, name string, fc func() error) {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- fc() }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatalf("%s blocked, migration deadlocked on the single connection", name)
+	}
+}
+
+// Table rebuilds pin a connection for the PRAGMAs; every statement they run
+// must go to that connection. Reaching for the pool instead deadlocks as soon
+// as the pool has no second connection to hand out.
+func TestRecreateTableSingleConnection(t *testing.T) {
+	createChildren := "CREATE TABLE `fk_children` (`parent_id` integer, `extra` text)"
+
+	t.Run("AutoMigrate", func(t *testing.T) {
+		db := openSingleConnDB(t)
+		if err := db.Exec(createChildren).Error; err != nil {
+			t.Fatal(err)
+		}
+		// adds the missing foreign key, so the table gets rebuilt
+		mustNotBlock(t, "AutoMigrate", func() error {
+			return db.AutoMigrate(&fkParent{}, &fkChild{})
+		})
+	})
+
+	t.Run("DropColumn", func(t *testing.T) {
+		db := openSingleConnDB(t)
+		if err := db.Exec(createChildren).Error; err != nil {
+			t.Fatal(err)
+		}
+		mustNotBlock(t, "DropColumn", func() error {
+			return db.Migrator().DropColumn(&fkChild{}, "extra")
+		})
+	})
+
+	t.Run("AlterColumn", func(t *testing.T) {
+		db := openSingleConnDB(t)
+		if err := db.Exec(createChildren).Error; err != nil {
+			t.Fatal(err)
+		}
+		mustNotBlock(t, "AlterColumn", func() error {
+			return db.Migrator().AlterColumn(&fkChild{}, "extra")
+		})
+	})
+
+	t.Run("DropConstraint", func(t *testing.T) {
+		db := openSingleConnDB(t)
+		if err := db.AutoMigrate(&fkParent{}, &fkChild{}); err != nil {
+			t.Fatal(err)
+		}
+		mustNotBlock(t, "DropConstraint", func() error {
+			return db.Migrator().DropConstraint(&fkChild{}, "Parent")
+		})
+	})
+}
+
+// The callback of RunWithoutForeignKey gets the pinned connection and can use
+// it for queries and for nested migrator calls.
+func TestRunWithoutForeignKeySingleConnection(t *testing.T) {
+	db := openSingleConnDB(t)
+	if err := db.AutoMigrate(&fkParent{}, &fkChild{}); err != nil {
+		t.Fatal(err)
+	}
+
+	m, ok := db.Migrator().(*Migrator)
+	if !ok {
+		t.Fatalf("migrator = %T, want *sqlite.Migrator", db.Migrator())
+	}
+
+	mustNotBlock(t, "RunWithoutForeignKey", func() error {
+		return m.RunWithoutForeignKey(func(tx *gorm.DB) error {
+			var count int
+			if err := tx.Raw("SELECT count(*) FROM fk_parents").Row().Scan(&count); err != nil {
+				return err
+			}
+			return tx.Migrator().DropTable(&fkChild{})
+		})
+	})
+
+	if db.Migrator().HasTable(&fkChild{}) {
+		t.Error("HasTable(fk_children) = true after DropTable, want false")
 	}
 }
 
