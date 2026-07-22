@@ -17,8 +17,27 @@ type Migrator struct {
 	migrator.Migrator
 }
 
+// RunWithoutForeignKey runs fc with foreign key enforcement disabled.
+//
+// The PRAGMAs are issued on the connection pool, not on a dedicated
+// connection: fc has no way to receive a pinned connection, so pinning one
+// here would deadlock any query fc sends through the pool once it is
+// exhausted (issue #24). The trade-off is that with a pool larger than one
+// connection the PRAGMAs are not guaranteed to hit the same connection that
+// fc's statements use.
 func (m *Migrator) RunWithoutForeignKey(fc func() error) error {
-	return m.runWithoutForeignKey(func(*gorm.DB) error { return fc() })
+	var enabled int
+	if err := m.DB.Raw("PRAGMA foreign_keys").Scan(&enabled).Error; err != nil {
+		return err
+	}
+	if enabled == 1 {
+		if err := m.DB.Exec("PRAGMA foreign_keys = OFF").Error; err != nil {
+			return err
+		}
+		defer m.DB.Exec("PRAGMA foreign_keys = ON")
+	}
+
+	return fc()
 }
 
 // runWithoutForeignKey runs fc with foreign key enforcement disabled.
@@ -252,7 +271,7 @@ func (m *Migrator) HasConstraint(value any, name string) bool {
 			name = constraint.GetName()
 		}
 
-		rawDDL, err := m.getRawDDL(table)
+		rawDDL, err := m.getRawDDL(m.DB, table)
 		if err != nil {
 			return err
 		}
@@ -408,9 +427,9 @@ func (m *Migrator) GetIndexes(value any) ([]gorm.Index, error) {
 	return indexes, err
 }
 
-func (m *Migrator) getRawDDL(table string) (string, error) {
+func (m *Migrator) getRawDDL(db *gorm.DB, table string) (string, error) {
 	var createSQL string
-	err := m.DB.Raw("SELECT sql FROM sqlite_master WHERE type = ? AND tbl_name = ? AND name = ?", "table", table, table).Row().Scan(&createSQL)
+	err := db.Raw("SELECT sql FROM sqlite_master WHERE type = ? AND tbl_name = ? AND name = ?", "table", table, table).Row().Scan(&createSQL)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return "", err
 	}
@@ -436,7 +455,7 @@ func (m *Migrator) recreateTable(
 			table = *tablePtr
 		}
 
-		rawDDL, err := m.getRawDDL(table)
+		rawDDL, err := m.getRawDDL(execDB, table)
 		if err != nil {
 			return err
 		}

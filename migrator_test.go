@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -442,6 +443,100 @@ func TestParseDDL_DecimalPrecision(t *testing.T) {
 			}
 		}
 	}
+}
+
+// openSingleConnDB mimics the common SQLite setup that serializes writers:
+// a pool limited to one connection.
+func openSingleConnDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := openTestDB(t, "_pragma=foreign_keys(1)")
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	return db
+}
+
+// mustFinish fails the test if fn is still running after the timeout, which
+// is how a pool deadlock manifests.
+func mustFinish(t *testing.T, name string, fn func() error) {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- fn() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatalf("%s: deadlocked (issue #24)", name)
+	}
+}
+
+type DeadlockParent struct {
+	ID int `gorm:"primaryKey"`
+}
+
+func (DeadlockParent) TableName() string { return "deadlock_parents" }
+
+type DeadlockChild struct {
+	ID       int
+	ParentID int
+	Parent   DeadlockParent `gorm:"foreignKey:ParentID"`
+	Extra    string
+}
+
+func (DeadlockChild) TableName() string { return "deadlock_children" }
+
+type DeadlockOrphan struct {
+	ID       int
+	ParentID int
+	Parent   DeadlockParent `gorm:"foreignKey:ParentID"`
+}
+
+func (DeadlockOrphan) TableName() string { return "deadlock_orphans" }
+
+// Issue #24: with SetMaxOpenConns(1), every migrator entry point that pins a
+// connection must not issue queries through the pool from inside the pinned
+// callback — that inner query waits forever for the connection the callback
+// itself is holding.
+func TestMigratorSingleConnectionNoDeadlock(t *testing.T) {
+	db := openSingleConnDB(t)
+	if err := db.AutoMigrate(&DeadlockParent{}, &DeadlockChild{}); err != nil {
+		t.Fatal(err)
+	}
+
+	mustFinish(t, "DropColumn", func() error {
+		return db.Migrator().DropColumn(&DeadlockChild{}, "extra")
+	})
+	mustFinish(t, "AlterColumn", func() error {
+		return db.Migrator().AlterColumn(&DeadlockChild{}, "parent_id")
+	})
+
+	// a table missing a foreign key declared in the model makes AutoMigrate
+	// go through CreateConstraint → recreateTable
+	if err := db.Exec("CREATE TABLE `deadlock_orphans` (`id` integer, `parent_id` integer)").Error; err != nil {
+		t.Fatal(err)
+	}
+	mustFinish(t, "AutoMigrate adding a foreign key", func() error {
+		return db.AutoMigrate(&DeadlockOrphan{})
+	})
+
+	// the public RunWithoutForeignKey callback has no handle on a pinned
+	// connection, so plain queries and nested migrator calls must both work
+	m := db.Migrator().(*Migrator)
+	mustFinish(t, "RunWithoutForeignKey with a plain query", func() error {
+		return m.RunWithoutForeignKey(func() error {
+			var n int
+			return db.Raw("SELECT count(*) FROM deadlock_parents").Scan(&n).Error
+		})
+	})
+	mustFinish(t, "RunWithoutForeignKey with a nested migrator call", func() error {
+		return m.RunWithoutForeignKey(func() error {
+			return db.Migrator().DropTable("deadlock_orphans")
+		})
+	})
 }
 
 type DefaultValueModel struct {
