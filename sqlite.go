@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/url"
 	"strconv"
 	"strings"
@@ -13,8 +14,8 @@ import (
 	"gorm.io/gorm/logger"
 	"gorm.io/gorm/migrator"
 	"gorm.io/gorm/schema"
-	_ "modernc.org/sqlite"
-	sqlite3 "modernc.org/sqlite/lib"
+	moderncsqlite "modernc.org/sqlite"
+	moderncsqlitelib "modernc.org/sqlite/lib"
 )
 
 // DriverName is the default driver name for SQLite.
@@ -260,18 +261,20 @@ func (d Dialector) RollbackTo(tx *gorm.DB, name string) error {
 }
 
 func (d Dialector) Translate(err error) error {
-	switch terr := err.(type) {
-	case interface{ Code() int }:
-		switch terr.Code() {
-		case sqlite3.SQLITE_CONSTRAINT_UNIQUE,
-			sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY,
-			sqlite3.SQLITE_CONSTRAINT_ROWID:
-			return gorm.ErrDuplicatedKey
-		case sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY:
-			return gorm.ErrForeignKeyViolated
-		case sqlite3.SQLITE_CONSTRAINT_CHECK:
-			return gorm.ErrCheckConstraintViolated
-		}
+	var sqliteErr *moderncsqlite.Error
+	if !errors.As(err, &sqliteErr) || sqliteErr == nil {
+		return err
+	}
+
+	switch sqliteErr.Code() {
+	case moderncsqlitelib.SQLITE_CONSTRAINT_UNIQUE,
+		moderncsqlitelib.SQLITE_CONSTRAINT_PRIMARYKEY,
+		moderncsqlitelib.SQLITE_CONSTRAINT_ROWID:
+		return gorm.ErrDuplicatedKey
+	case moderncsqlitelib.SQLITE_CONSTRAINT_FOREIGNKEY:
+		return gorm.ErrForeignKeyViolated
+	case moderncsqlitelib.SQLITE_CONSTRAINT_CHECK:
+		return gorm.ErrCheckConstraintViolated
 	}
 	return err
 }
