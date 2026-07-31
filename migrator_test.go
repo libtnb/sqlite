@@ -10,43 +10,6 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// openTestDB opens a file-backed database in a per-test temp dir so that
-// connection-pool behavior matches real usage (":memory:" would give every
-// pooled connection its own database).
-func openTestDB(t *testing.T, dsnParams string) *gorm.DB {
-	t.Helper()
-	dsn := filepath.Join(t.TempDir(), "test.db")
-	if dsnParams != "" {
-		dsn += "?" + dsnParams
-	}
-	db, err := gorm.Open(Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
-	if err != nil {
-		t.Fatalf("gorm.Open: %v", err)
-	}
-	closeTestDB(t, db)
-	return db
-}
-
-// closeTestDB closes the pool on test cleanup; Windows cannot remove the
-// t.TempDir() database file while connections still hold it open.
-func closeTestDB(t *testing.T, db *gorm.DB) {
-	t.Helper()
-	t.Cleanup(func() {
-		if sqlDB, err := db.DB(); err == nil {
-			_ = sqlDB.Close()
-		}
-	})
-}
-
-func tableDDL(t *testing.T, db *gorm.DB, table string) string {
-	t.Helper()
-	var ddl string
-	if err := db.Raw("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&ddl).Error; err != nil {
-		t.Fatalf("querying sqlite_master: %v", err)
-	}
-	return ddl
-}
-
 // DropColumn and AlterColumn must accept a table-name string like the other
 // GORM dialects do (stmt.Schema is nil then) instead of panicking.
 func TestMigratorStringTableName(t *testing.T) {
@@ -445,35 +408,6 @@ func TestParseDDL_DecimalPrecision(t *testing.T) {
 	}
 }
 
-// openSingleConnDB mimics the common SQLite setup that serializes writers:
-// a pool limited to one connection.
-func openSingleConnDB(t *testing.T) *gorm.DB {
-	t.Helper()
-	db := openTestDB(t, "_pragma=foreign_keys(1)")
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB.SetMaxOpenConns(1)
-	return db
-}
-
-// mustFinish fails the test if fn is still running after the timeout, which
-// is how a pool deadlock manifests.
-func mustFinish(t *testing.T, name string, fn func() error) {
-	t.Helper()
-	done := make(chan error, 1)
-	go func() { done <- fn() }()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Errorf("%s: %v", name, err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatalf("%s: deadlocked (issue #24)", name)
-	}
-}
-
 type DeadlockParent struct {
 	ID int `gorm:"primaryKey"`
 }
@@ -585,5 +519,71 @@ func TestParseDDL_TableOptionsRoundTrip(t *testing.T) {
 	compiled := d.compile()
 	if !strings.Contains(compiled, "WITHOUT ROWID") || !strings.Contains(compiled, "STRICT") {
 		t.Errorf("table options lost in compile round-trip: %s", compiled)
+	}
+}
+
+// openTestDB opens a file-backed database in a per-test temp dir so that
+// connection-pool behavior matches real usage (":memory:" would give every
+// pooled connection its own database).
+func openTestDB(t *testing.T, dsnParams string) *gorm.DB {
+	t.Helper()
+	dsn := filepath.Join(t.TempDir(), "test.db")
+	if dsnParams != "" {
+		dsn += "?" + dsnParams
+	}
+	db, err := gorm.Open(Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatalf("gorm.Open: %v", err)
+	}
+	closeTestDB(t, db)
+	return db
+}
+
+// closeTestDB closes the pool on test cleanup; Windows cannot remove the
+// t.TempDir() database file while connections still hold it open.
+func closeTestDB(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+}
+
+func tableDDL(t *testing.T, db *gorm.DB, table string) string {
+	t.Helper()
+	var ddl string
+	if err := db.Raw("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&ddl).Error; err != nil {
+		t.Fatalf("querying sqlite_master: %v", err)
+	}
+	return ddl
+}
+
+// openSingleConnDB mimics the common SQLite setup that serializes writers:
+// a pool limited to one connection.
+func openSingleConnDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := openTestDB(t, "_pragma=foreign_keys(1)")
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	return db
+}
+
+// mustFinish fails the test if fn is still running after the timeout, which
+// is how a pool deadlock manifests.
+func mustFinish(t *testing.T, name string, fn func() error) {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- fn() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatalf("%s: deadlocked (issue #24)", name)
 	}
 }

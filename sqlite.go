@@ -249,52 +249,6 @@ func (d Dialector) dataTypeOf(field *schema.Field) string {
 	return string(field.DataType)
 }
 
-// isCompositePrimaryKey reports whether field is part of a multi-column
-// primary key. AUTOINCREMENT only works on a single-column INTEGER PRIMARY
-// KEY; emitting it for a composite key would silently reduce the primary key
-// to that one column (GORM skips the table-level PRIMARY KEY clause when a
-// field type already contains PRIMARY KEY).
-func isCompositePrimaryKey(field *schema.Field) bool {
-	return field.PrimaryKey && field.Schema != nil && len(field.Schema.PrimaryFields) > 1
-}
-
-// generatedColumnExpr returns the expression of a computed (generated) column
-// declared via the `generated` tag, if any. The `identity` keyword is reserved
-// for identity columns (rendered through the dialect's native auto-increment)
-// and is not a computed-column expression.
-func generatedColumnExpr(field *schema.Field) (string, bool) {
-	value, ok := field.TagSettings["GENERATED"]
-	if !ok {
-		return "", false
-	}
-	// Ignore an empty value or a bare `generated` tag, which the tag parser
-	// stores as the upper-cased key, rather than treating it as an expression.
-	if value = strings.TrimSpace(value); value == "" || value == "GENERATED" {
-		return "", false
-	}
-	if isIdentityKeyword(value) {
-		return "", false
-	}
-	return value, true
-}
-
-// isIdentityKeyword reports whether value is the `identity` keyword, optionally
-// combined with the generation mode `always` / `by default`. Any other token
-// means value is a computed-column expression.
-func isIdentityKeyword(value string) bool {
-	identity := false
-	for _, token := range strings.Fields(strings.ToLower(value)) {
-		switch token {
-		case "identity":
-			identity = true
-		case "always", "by", "default":
-		default:
-			return false
-		}
-	}
-	return identity
-}
-
 func (d Dialector) SavePoint(tx *gorm.DB, name string) error {
 	tx.Exec("SAVEPOINT " + name)
 	return nil
@@ -402,4 +356,50 @@ func splitDSN(dsn string) (path, query string) {
 		return dsn[:i], dsn[i+1:]
 	}
 	return dsn, ""
+}
+
+// isCompositePrimaryKey reports whether field is part of a multi-column
+// primary key. AUTOINCREMENT only works on a single-column INTEGER PRIMARY
+// KEY; emitting it for a composite key would silently reduce the primary key
+// to that one column (GORM skips the table-level PRIMARY KEY clause when a
+// field type already contains PRIMARY KEY).
+func isCompositePrimaryKey(field *schema.Field) bool {
+	return field.PrimaryKey && field.Schema != nil && len(field.Schema.PrimaryFields) > 1
+}
+
+// generatedColumnExpr returns the expression of a computed (generated) column
+// declared via the `generated` tag, if any. The `identity` keyword is reserved
+// for identity columns (rendered through the dialect's native auto-increment)
+// and is not a computed-column expression.
+func generatedColumnExpr(field *schema.Field) (string, bool) {
+	value, ok := field.TagSettings["GENERATED"]
+	if !ok {
+		return "", false
+	}
+	// Ignore an empty value or a bare `generated` tag, which the tag parser
+	// stores as the upper-cased key, rather than treating it as an expression.
+	if value = strings.TrimSpace(value); value == "" || value == "GENERATED" {
+		return "", false
+	}
+	if isIdentityKeyword(value) {
+		return "", false
+	}
+	return value, true
+}
+
+// isIdentityKeyword reports whether value is the `identity` keyword, optionally
+// combined with the generation mode `always` / `by default`. Any other token
+// means value is a computed-column expression.
+func isIdentityKeyword(value string) bool {
+	identity := false
+	for _, token := range strings.Fields(strings.ToLower(value)) {
+		switch token {
+		case "identity":
+			identity = true
+		case "always", "by", "default":
+		default:
+			return false
+		}
+	}
+	return identity
 }
