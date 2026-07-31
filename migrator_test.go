@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -373,11 +374,39 @@ func TestParseDDL_LowercaseUnique(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	found := false
 	for _, c := range d.columns {
 		if c.NameValue.String == "a" {
+			found = true
 			if uniq, _ := c.Unique(); !uniq {
 				t.Error("lowercase table-level unique(...) not recognized")
 			}
+		}
+	}
+	if !found {
+		t.Fatal("column a was not parsed at all")
+	}
+}
+
+func TestConstraintNameQuoting(t *testing.T) {
+	forms := map[string]string{
+		"backquotes":    "CREATE TABLE `t` (`a` integer, CONSTRAINT `chk_a` CHECK (`a` > 0))",
+		"double quotes": `CREATE TABLE "t" ("a" integer, CONSTRAINT "chk_a" CHECK ("a" > 0))`,
+		"brackets":      "CREATE TABLE t (a integer, CONSTRAINT [chk_a] CHECK (a > 0))",
+		"unquoted":      "CREATE TABLE t (a integer, CONSTRAINT chk_a CHECK (a > 0))",
+	}
+	for form, ddlSQL := range forms {
+		d, err := parseDDL(ddlSQL)
+		if err != nil {
+			t.Fatalf("%s: %v", form, err)
+		}
+		reg := compileConstraintRegexp("chk_a")
+		if !slices.ContainsFunc(d.fields, reg.MatchString) {
+			t.Errorf("%s: constraint chk_a not matched", form)
+		}
+		regPrefix := compileConstraintRegexp("chk")
+		if slices.ContainsFunc(d.fields, regPrefix.MatchString) {
+			t.Errorf("%s: prefix chk must not match", form)
 		}
 	}
 }
@@ -508,6 +537,15 @@ func TestDefaultValueRoundTrip(t *testing.T) {
 	}
 	if dv, ok := d.columns[0].DefaultValue(); !ok || dv != "hi" {
 		t.Errorf("legacy DefaultValue = (%q,%v), want (hi,true)", dv, ok)
+	}
+
+	// only one outer quote pair is stripped; inner quotes survive
+	d, err = parseDDL("CREATE TABLE `q` (`code` text DEFAULT '\"x\"')")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dv, ok := d.columns[0].DefaultValue(); !ok || dv != `"x"` {
+		t.Errorf(`quoted DefaultValue = (%q,%v), want ("x",true)`, dv, ok)
 	}
 }
 

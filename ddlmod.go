@@ -157,7 +157,7 @@ func parseDDL(strs ...string) (*ddl, error) {
 						if strings.ToLower(defaultMatches[1]) != "null" {
 							// single quotes are standard SQL string literals,
 							// double quotes come from tables created by older versions
-							columnType.DefaultValueValue = sql.NullString{String: strings.Trim(defaultMatches[1], `'"`), Valid: true}
+							columnType.DefaultValueValue = sql.NullString{String: trimQuote(defaultMatches[1]), Valid: true}
 						}
 					}
 
@@ -223,7 +223,9 @@ func (d *ddl) renameTable(dst, src string) error {
 }
 
 func compileConstraintRegexp(name string) *regexp.Regexp {
-	return regexp.MustCompile("^(?i:CONSTRAINT)\\s+[\"`]?" + regexp.QuoteMeta(name) + "[\"`\\s]")
+	// the name may be quoted with backquotes, double quotes, single quotes
+	// or brackets, or not at all
+	return regexp.MustCompile("^(?i:CONSTRAINT)\\s+[\"'`\\[]?" + regexp.QuoteMeta(name) + "[\"'`\\]\\s]")
 }
 
 func (d *ddl) addConstraint(name string, sql string) {
@@ -287,4 +289,15 @@ func (d *ddl) removeColumn(name string) bool {
 	}
 
 	return false
+}
+
+// trimQuote removes one pair of matching outer quotes from a default value
+// literal, so inner quotes of values like '"x"' survive.
+func trimQuote(s string) string {
+	if len(s) >= 2 {
+		if (s[0] == '\'' && s[len(s)-1] == '\'') || (s[0] == '"' && s[len(s)-1] == '"') {
+			return s[1 : len(s)-1]
+		}
+	}
+	return s
 }
