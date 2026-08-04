@@ -271,13 +271,16 @@ func (m *Migrator) HasConstraint(value any, name string) bool {
 			name = constraint.GetName()
 		}
 
+		// the result is a plain bool, so a missing table or a DDL this parser
+		// cannot read means "no such constraint" rather than an error to
+		// propagate; returning one here would only be discarded above
 		rawDDL, err := m.getRawDDL(m.DB, table)
 		if err != nil {
-			return err
+			return nil
 		}
 		parsed, err := parseDDL(rawDDL)
 		if err != nil {
-			return err
+			return nil
 		}
 
 		reg := compileConstraintRegexp(name)

@@ -389,20 +389,26 @@ func TestParseDDL_LowercaseUnique(t *testing.T) {
 }
 
 func TestConstraintNameQuoting(t *testing.T) {
-	forms := map[string]string{
-		"backquotes":    "CREATE TABLE `t` (`a` integer, CONSTRAINT `chk_a` CHECK (`a` > 0))",
-		"double quotes": `CREATE TABLE "t" ("a" integer, CONSTRAINT "chk_a" CHECK ("a" > 0))`,
-		"brackets":      "CREATE TABLE t (a integer, CONSTRAINT [chk_a] CHECK (a > 0))",
-		"unquoted":      "CREATE TABLE t (a integer, CONSTRAINT chk_a CHECK (a > 0))",
+	forms := []struct {
+		desc, ddl, name string
+	}{
+		{"backquotes", "CREATE TABLE `t` (`a` integer, CONSTRAINT `chk_a` CHECK (`a` > 0))", "chk_a"},
+		{"double quotes", `CREATE TABLE "t" ("a" integer, CONSTRAINT "chk_a" CHECK ("a" > 0))`, "chk_a"},
+		{"single quotes", "CREATE TABLE `t` (`a` integer, CONSTRAINT 'chk_a' CHECK (`a` > 0))", "chk_a"},
+		{"brackets", "CREATE TABLE t (a integer, CONSTRAINT [chk_a] CHECK (a > 0))", "chk_a"},
+		{"unquoted", "CREATE TABLE t (a integer, CONSTRAINT chk_a CHECK (a > 0))", "chk_a"},
+		{"hyphenated name", "CREATE TABLE `t` (`a` integer, CONSTRAINT `chk-a` CHECK (`a` > 0))", "chk-a"},
+		{"unicode name", "CREATE TABLE `t` (`a` integer, CONSTRAINT `检查_a` CHECK (`a` > 0))", "检查_a"},
 	}
-	for form, ddlSQL := range forms {
+	for _, f := range forms {
+		form, ddlSQL := f.desc, f.ddl
 		d, err := parseDDL(ddlSQL)
 		if err != nil {
 			t.Fatalf("%s: %v", form, err)
 		}
-		reg := compileConstraintRegexp("chk_a")
+		reg := compileConstraintRegexp(f.name)
 		if !slices.ContainsFunc(d.fields, reg.MatchString) {
-			t.Errorf("%s: constraint chk_a not matched", form)
+			t.Errorf("%s: constraint %s not matched", form, f.name)
 		}
 		regPrefix := compileConstraintRegexp("chk")
 		if slices.ContainsFunc(d.fields, regPrefix.MatchString) {
@@ -413,6 +419,53 @@ func TestConstraintNameQuoting(t *testing.T) {
 		if cols := d.getColumns(); len(cols) != 1 || cols[0] != "`a`" {
 			t.Errorf("%s: getColumns = %v, want [`a`]", form, cols)
 		}
+	}
+}
+
+// removeColumn matches the column name against the raw DDL field, so it has to
+// cope with every identifier quoting form. A false return makes DropColumn
+// fail, so a missed match is not a silent no-op.
+func TestRemoveColumnQuotingForms(t *testing.T) {
+	forms := map[string]string{
+		"backquotes":    "CREATE TABLE `t` (`a` integer, `b` text)",
+		"double quotes": `CREATE TABLE "t" ("a" integer, "b" text)`,
+		"single quotes": "CREATE TABLE `t` (`a` integer, 'b' text)",
+		"brackets":      "CREATE TABLE t ([a] integer, [b] text)",
+		"unquoted":      "CREATE TABLE t (a integer, b text)",
+	}
+	for form, ddlSQL := range forms {
+		d, err := parseDDL(ddlSQL)
+		if err != nil {
+			t.Fatalf("%s: %v", form, err)
+		}
+		if !d.removeColumn("b") {
+			t.Errorf("%s: removeColumn(b) = false, want true", form)
+		}
+		if cols := d.getColumns(); len(cols) != 1 || cols[0] != "`a`" {
+			t.Errorf("%s: getColumns after removal = %v, want [`a`]", form, cols)
+		}
+	}
+}
+
+type NoSuchTableModel struct {
+	ID int
+}
+
+func (NoSuchTableModel) TableName() string { return "no_such_table" }
+
+// HasConstraint reports a plain bool, so looking it up on a table that does not
+// exist must simply answer false and leave the caller's session usable.
+func TestHasConstraintMissingTable(t *testing.T) {
+	db := openTestDB(t, "")
+
+	if db.Migrator().HasConstraint(&NoSuchTableModel{}, "chk_x") {
+		t.Error("HasConstraint on a missing table = true, want false")
+	}
+	if db.Error != nil {
+		t.Errorf("session left with an error: %v", db.Error)
+	}
+	if err := db.Exec("CREATE TABLE hc_probe (id integer)").Error; err != nil {
+		t.Errorf("follow-up statement on the same session failed: %v", err)
 	}
 }
 

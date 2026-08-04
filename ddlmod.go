@@ -17,7 +17,7 @@ var (
 	indexRegexp        = regexp.MustCompile(fmt.Sprintf(`(?is)CREATE(?: UNIQUE)? INDEX [%v]?[\w\d-]+[%v]?(?s:.*?)ON (.*)$`, sqliteSeparator, sqliteSeparator))
 	tableRegexp        = regexp.MustCompile(fmt.Sprintf(`(?is)(CREATE TABLE [%v]?[\w\d-]+[%v]?)(?:\s*\((.*)\))?(.*)$`, sqliteSeparator, sqliteSeparator))
 	checkRegexp        = regexp.MustCompile(`^(?i)CHECK[\s]*\(`)
-	constraintRegexp   = regexp.MustCompile(fmt.Sprintf(`^(?i)CONSTRAINT\s+(?:[%v\[]?[\w\d_]+[%v\]]?|\?)\s+`, sqliteSeparator, sqliteSeparator))
+	constraintRegexp   = regexp.MustCompile(fmt.Sprintf(`^(?i)CONSTRAINT\s+(?:[%v\[]?[\p{L}\p{N}_-]+[%v\]]?|\?)\s+`, sqliteSeparator, sqliteSeparator))
 	separatorRegexp    = regexp.MustCompile(fmt.Sprintf("[%v]", sqliteSeparator))
 	columnRegexp       = regexp.MustCompile(fmt.Sprintf(`^[%v]?([\p{L}\p{N}_]+)[%v]?\s+(\w+(?:\([^)]*\))?)(.*)$`, sqliteSeparator, sqliteSeparator))
 	defaultValueRegexp = regexp.MustCompile(`(?i) DEFAULT \(?(.+)?\)?( |COLLATE|GENERATED|$)`)
@@ -268,7 +268,7 @@ func (d *ddl) getColumns() []string {
 			continue
 		}
 
-		reg := regexp.MustCompile("^[\"`']?([\\p{L}\\p{N}_]+)[\"`']?")
+		reg := regexp.MustCompile("^[\"`'\\[]?([\\p{L}\\p{N}_]+)[\"`'\\]]?")
 		match := reg.FindStringSubmatch(f)
 
 		if match != nil {
@@ -279,7 +279,7 @@ func (d *ddl) getColumns() []string {
 }
 
 func (d *ddl) removeColumn(name string) bool {
-	reg := regexp.MustCompile("^[`'\" ]?" + regexp.QuoteMeta(name) + "[`'\" ]")
+	reg := regexp.MustCompile("^[`'\"\\[ ]?" + regexp.QuoteMeta(name) + "[`'\"\\] ]")
 
 	for i := 0; i < len(d.fields); i++ {
 		if reg.MatchString(d.fields[i]) {
