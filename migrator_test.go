@@ -447,6 +447,86 @@ func TestRemoveColumnQuotingForms(t *testing.T) {
 	}
 }
 
+// tableRegexp used to reject a bracket-quoted table name outright, and
+// renameTable has to consume the brackets as well or the rewritten head
+// becomes [`t__temp`], which names a table with literal backquotes in it.
+func TestTableNameQuotingForms(t *testing.T) {
+	forms := map[string]string{
+		"backquotes":    "CREATE TABLE `t` (`a` integer, `b` text)",
+		"double quotes": `CREATE TABLE "t" ("a" integer, "b" text)`,
+		"single quotes": "CREATE TABLE 't' (`a` integer, `b` text)",
+		"brackets":      "CREATE TABLE [t] ([a] integer, [b] text)",
+		"unquoted":      "CREATE TABLE t (a integer, b text)",
+	}
+	for form, ddlSQL := range forms {
+		d, err := parseDDL(ddlSQL)
+		if err != nil {
+			t.Fatalf("%s: %v", form, err)
+		}
+		if cols := d.getColumns(); len(cols) != 2 {
+			t.Errorf("%s: getColumns = %v, want [`a` `b`]", form, cols)
+		}
+		if err := d.renameTable("t__temp", "t"); err != nil {
+			t.Errorf("%s: renameTable: %v", form, err)
+			continue
+		}
+		if !strings.Contains(d.head, "`t__temp`") {
+			t.Errorf("%s: renamed head = %q, want it to quote t__temp", form, d.head)
+		}
+		if strings.ContainsAny(d.head, "[]") {
+			t.Errorf("%s: renamed head still carries the old brackets: %q", form, d.head)
+		}
+	}
+}
+
+type BracketTable struct {
+	A int
+	B string
+}
+
+func (BracketTable) TableName() string { return "bracket_tbl" }
+
+// End to end: a table whose DDL uses bracket quoting throughout must rebuild
+// like any other, keeping its rows, constraints and indexes. DropColumn used
+// to fail with "invalid DDL" before parseDDL accepted the name.
+func TestBracketQuotedTableRebuild(t *testing.T) {
+	db := openTestDB(t, "")
+	for _, s := range []string{
+		"CREATE TABLE [bracket_tbl] ([a] integer, [b] text, CONSTRAINT [chk-a] CHECK ([a] > 0))",
+		"CREATE INDEX [idx_bracket_a] ON [bracket_tbl]([a])",
+		"INSERT INTO [bracket_tbl] ([a],[b]) VALUES (1,'keep')",
+	} {
+		if err := db.Exec(s).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if !db.Migrator().HasConstraint(&BracketTable{}, "chk-a") {
+		t.Error("HasConstraint(chk-a) = false, want true")
+	}
+	if err := db.Migrator().DropColumn(&BracketTable{}, "b"); err != nil {
+		t.Fatalf("DropColumn on a bracket-quoted table: %v", err)
+	}
+	if db.Migrator().HasColumn(&BracketTable{}, "b") {
+		t.Error("column b still present after DropColumn")
+	}
+
+	var a int
+	if err := db.Raw("SELECT a FROM bracket_tbl").Scan(&a).Error; err != nil || a != 1 {
+		t.Errorf("row lost in the rebuild: a=%d err=%v", a, err)
+	}
+	if !db.Migrator().HasConstraint(&BracketTable{}, "chk-a") {
+		t.Error("constraint chk-a lost in the rebuild")
+	}
+	var idx []string
+	if err := db.Raw("SELECT name FROM sqlite_master WHERE tbl_name='bracket_tbl' AND type='index'").Scan(&idx).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(idx, "idx_bracket_a") {
+		t.Errorf("index idx_bracket_a lost in the rebuild, remaining: %v", idx)
+	}
+}
+
 type NoSuchTableModel struct {
 	ID int
 }

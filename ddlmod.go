@@ -15,7 +15,7 @@ var (
 	sqliteSeparator    = "`|\"|'"
 	uniqueRegexp       = regexp.MustCompile(fmt.Sprintf(`^(?i)(?:CONSTRAINT [%v\[]?[\w-]+[%v\]]? )?UNIQUE\s*(\(.*)$`, sqliteSeparator, sqliteSeparator))
 	indexRegexp        = regexp.MustCompile(fmt.Sprintf(`(?is)CREATE(?: UNIQUE)? INDEX [%v]?[\w\d-]+[%v]?(?s:.*?)ON (.*)$`, sqliteSeparator, sqliteSeparator))
-	tableRegexp        = regexp.MustCompile(fmt.Sprintf(`(?is)(CREATE TABLE [%v]?[\w\d-]+[%v]?)(?:\s*\((.*)\))?(.*)$`, sqliteSeparator, sqliteSeparator))
+	tableRegexp        = regexp.MustCompile(fmt.Sprintf(`(?is)(CREATE TABLE [%v\[]?[\w\d-]+[%v\]]?)(?:\s*\((.*)\))?(.*)$`, sqliteSeparator, sqliteSeparator))
 	checkRegexp        = regexp.MustCompile(`^(?i)CHECK[\s]*\(`)
 	constraintRegexp   = regexp.MustCompile(fmt.Sprintf(`^(?i)CONSTRAINT\s+(?:[%v\[]?[\p{L}\p{N}_-]+[%v\]]?|\?)\s+`, sqliteSeparator, sqliteSeparator))
 	separatorRegexp    = regexp.MustCompile(fmt.Sprintf("[%v]", sqliteSeparator))
@@ -208,7 +208,10 @@ func (d *ddl) compile() string {
 }
 
 func (d *ddl) renameTable(dst, src string) error {
-	tableReg, err := regexp.Compile("\\s*('|`|\")?\\b" + regexp.QuoteMeta(src) + "\\b('|`|\")?\\s*")
+	// the name may be quoted with single quotes, backquotes, double quotes or
+	// brackets; the closing bracket has to be consumed too, or the rewritten
+	// head keeps it and yields [`dst`]
+	tableReg, err := regexp.Compile("\\s*('|`|\"|\\[)?\\b" + regexp.QuoteMeta(src) + "\\b('|`|\"|\\])?\\s*")
 	if err != nil {
 		return err
 	}
