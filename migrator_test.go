@@ -447,6 +447,51 @@ func TestRemoveColumnQuotingForms(t *testing.T) {
 	}
 }
 
+// Column names carry the same quoting forms as constraint names, and SQLite
+// identifiers are not restricted to ASCII. A column the parser does not see is
+// dropped from the rebuild's copy list, so its data is lost.
+func TestColumnIdentifierForms(t *testing.T) {
+	forms := []struct {
+		desc, ddl string
+		want      []string
+	}{
+		{"backquotes", "CREATE TABLE `t` (`a` integer, `b` text)", []string{"`a`", "`b`"}},
+		{"double quotes", `CREATE TABLE "t" ("a" integer, "b" text)`, []string{"`a`", "`b`"}},
+		{"brackets", "CREATE TABLE t ([a] integer, [b] text)", []string{"`a`", "`b`"}},
+		{"unquoted", "CREATE TABLE t (a integer, b text)", []string{"`a`", "`b`"}},
+		{"non-ASCII", "CREATE TABLE `t` (`用户名` text, `b` integer)", []string{"`用户名`", "`b`"}},
+	}
+	for _, f := range forms {
+		d, err := parseDDL(f.ddl)
+		if err != nil {
+			t.Fatalf("%s: %v", f.desc, err)
+		}
+		if cols := d.getColumns(); !slices.Equal(cols, f.want) {
+			t.Errorf("%s: getColumns = %v, want %v", f.desc, cols, f.want)
+		}
+		if len(d.columns) != len(f.want) {
+			t.Errorf("%s: parsed %d columns, want %d", f.desc, len(d.columns), len(f.want))
+		}
+	}
+}
+
+// ColumnTypes feeds parseDDL the table DDL together with every index DDL, so an
+// index name the parser cannot read fails the whole call with "invalid DDL".
+func TestIndexIdentifierForms(t *testing.T) {
+	forms := map[string]string{
+		"backquotes": "CREATE INDEX `idx_a` ON `t`(`a`)",
+		"brackets":   "CREATE INDEX [idx_a] ON [t]([a])",
+		"unquoted":   "CREATE INDEX idx_a ON t(a)",
+		"non-ASCII":  "CREATE INDEX `索引_a` ON `t`(`a`)",
+		"unique":     "CREATE UNIQUE INDEX [idx_b] ON [t]([b])",
+	}
+	for form, ddlSQL := range forms {
+		if _, err := parseDDL("CREATE TABLE `t` (`a` integer, `b` text)", ddlSQL); err != nil {
+			t.Errorf("%s: %v", form, err)
+		}
+	}
+}
+
 // tableRegexp used to reject a bracket-quoted table name outright, and
 // renameTable has to consume the brackets as well or the rewritten head
 // becomes [`t__temp`], which names a table with literal backquotes in it.
@@ -558,6 +603,7 @@ func TestUniqueConstraintNameQuoting(t *testing.T) {
 		"single quotes": "CREATE TABLE `t` (`a` integer, CONSTRAINT 'u_a' UNIQUE (`a`))",
 		"brackets":      "CREATE TABLE t (a integer, CONSTRAINT [u_a] UNIQUE (a))",
 		"unquoted":      "CREATE TABLE t (a integer, CONSTRAINT u_a UNIQUE (a))",
+		"non-ASCII":     "CREATE TABLE `t` (`a` integer, CONSTRAINT `唯一_a` UNIQUE (`a`))",
 	}
 	for form, ddlSQL := range forms {
 		d, err := parseDDL(ddlSQL)
