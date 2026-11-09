@@ -139,7 +139,7 @@ func TestInjectDSNParams(t *testing.T) {
 		"_texttotime=1",
 		"_inttotime=1",
 		"_time_format=sqlite",
-		"_pragma=busy_timeout(5000)",
+		"_busy_timeout=5000",
 	}
 	tests := []struct {
 		name    string
@@ -152,22 +152,22 @@ func TestInjectDSNParams(t *testing.T) {
 		{
 			name:  ":memory: gets all defaults",
 			in:    ":memory:",
-			exact: ":memory:?_texttotime=1&_inttotime=1&_time_format=sqlite&_pragma=busy_timeout(5000)",
+			exact: ":memory:?_texttotime=1&_inttotime=1&_time_format=sqlite&_busy_timeout=5000",
 		},
 		{
 			name:  "file: URI gets all defaults",
 			in:    "file::memory:",
-			exact: "file::memory:?_texttotime=1&_inttotime=1&_time_format=sqlite&_pragma=busy_timeout(5000)",
+			exact: "file::memory:?_texttotime=1&_inttotime=1&_time_format=sqlite&_busy_timeout=5000",
 		},
 		{
 			name:  "plain path gets all defaults",
 			in:    "test.db",
-			exact: "test.db?_texttotime=1&_inttotime=1&_time_format=sqlite&_pragma=busy_timeout(5000)",
+			exact: "test.db?_texttotime=1&_inttotime=1&_time_format=sqlite&_busy_timeout=5000",
 		},
 		{
 			name:  "existing query is preserved verbatim",
 			in:    "test.db?cache=shared",
-			exact: "test.db?cache=shared&_texttotime=1&_inttotime=1&_time_format=sqlite&_pragma=busy_timeout(5000)",
+			exact: "test.db?cache=shared&_texttotime=1&_inttotime=1&_time_format=sqlite&_busy_timeout=5000",
 		},
 
 		// --- empty / no-path DSN ---
@@ -181,12 +181,12 @@ func TestInjectDSNParams(t *testing.T) {
 		{
 			name:  "trailing ? with empty query",
 			in:    "test.db?",
-			exact: "test.db?_texttotime=1&_inttotime=1&_time_format=sqlite&_pragma=busy_timeout(5000)",
+			exact: "test.db?_texttotime=1&_inttotime=1&_time_format=sqlite&_busy_timeout=5000",
 		},
 		{
 			name:  "trailing & is preserved (still parseable by url.ParseQuery)",
 			in:    "test.db?cache=shared&",
-			exact: "test.db?cache=shared&&_texttotime=1&_inttotime=1&_time_format=sqlite&_pragma=busy_timeout(5000)",
+			exact: "test.db?cache=shared&&_texttotime=1&_inttotime=1&_time_format=sqlite&_busy_timeout=5000",
 		},
 
 		// --- substring-in-path safety: keys/values appearing in the path
@@ -211,57 +211,74 @@ func TestInjectDSNParams(t *testing.T) {
 		{
 			name:    "user _time_format=datetime wins",
 			in:      "test.db?_time_format=datetime",
-			want:    []string{"_time_format=datetime", "_texttotime=1", "_inttotime=1", "_pragma=busy_timeout(5000)"},
+			want:    []string{"_time_format=datetime", "_texttotime=1", "_inttotime=1", "_busy_timeout=5000"},
 			notWant: []string{"_time_format=sqlite"},
 		},
 		{
 			name:    "user _texttotime=0 wins",
 			in:      "test.db?_texttotime=0",
-			want:    []string{"_texttotime=0", "_inttotime=1", "_time_format=sqlite", "_pragma=busy_timeout(5000)"},
+			want:    []string{"_texttotime=0", "_inttotime=1", "_time_format=sqlite", "_busy_timeout=5000"},
 			notWant: []string{"_texttotime=1"},
 		},
 		{
 			name:    "user _inttotime=0 wins",
 			in:      "test.db?_inttotime=0",
-			want:    []string{"_inttotime=0", "_texttotime=1", "_time_format=sqlite", "_pragma=busy_timeout(5000)"},
+			want:    []string{"_inttotime=0", "_texttotime=1", "_time_format=sqlite", "_busy_timeout=5000"},
 			notWant: []string{"_inttotime=1"},
 		},
 
-		// --- busy_timeout: detected across pragma syntaxes / casings ---
+		// --- busy_timeout: detected across shorthand keys, pragma syntaxes / casings ---
+		{
+			name:    "user _busy_timeout shorthand wins",
+			in:      "test.db?_busy_timeout=10000",
+			want:    []string{"_busy_timeout=10000", "_texttotime=1", "_inttotime=1", "_time_format=sqlite"},
+			notWant: []string{"_busy_timeout=5000"},
+		},
+		{
+			name:    "user _timeout alias wins",
+			in:      "test.db?_timeout=10000",
+			want:    []string{"_timeout=10000"},
+			notWant: []string{"_busy_timeout=5000"},
+		},
 		{
 			name:    "user busy_timeout via function syntax wins",
 			in:      "test.db?_pragma=busy_timeout(10000)",
 			want:    []string{"_pragma=busy_timeout(10000)", "_texttotime=1", "_inttotime=1", "_time_format=sqlite"},
-			notWant: []string{"busy_timeout(5000)"},
+			notWant: []string{"_busy_timeout=5000"},
 		},
 		{
 			name:    "user busy_timeout via URL-encoded '=' syntax wins",
 			in:      "test.db?_pragma=busy_timeout%3D10000",
 			want:    []string{"_pragma=busy_timeout%3D10000"},
-			notWant: []string{"busy_timeout(5000)"},
+			notWant: []string{"_busy_timeout=5000"},
 		},
 		{
 			name:    "BUSY_TIMEOUT (uppercase) is detected case-insensitively",
 			in:      "test.db?_pragma=BUSY_TIMEOUT(10000)",
 			want:    []string{"_pragma=BUSY_TIMEOUT(10000)"},
-			notWant: []string{"busy_timeout(5000)"},
+			notWant: []string{"_busy_timeout=5000"},
 		},
 		{
 			name:    "busy_timeout buried among multiple _pragma values is detected",
 			in:      "test.db?_pragma=foreign_keys(on)&_pragma=busy_timeout(7500)",
 			want:    []string{"_pragma=busy_timeout(7500)"},
-			notWant: []string{"busy_timeout(5000)"},
+			notWant: []string{"_busy_timeout=5000"},
 		},
 		{
 			name: "user has unrelated _pragma, busy_timeout still injected",
 			in:   "test.db?_pragma=foreign_keys(on)",
-			want: []string{"_pragma=foreign_keys(on)", "_pragma=busy_timeout(5000)", "_texttotime=1", "_inttotime=1", "_time_format=sqlite"},
+			want: []string{"_pragma=foreign_keys(on)", "_busy_timeout=5000", "_texttotime=1", "_inttotime=1", "_time_format=sqlite"},
 		},
 
 		// --- key matching is exact, not substring ---
 		{
 			name: "param named '_texttotime_extra' does not satisfy '_texttotime' check",
 			in:   "test.db?_texttotime_extra=1",
+			want: allDefaults,
+		},
+		{
+			name: "param named '_busy_timeout_extra' does not satisfy '_busy_timeout' check",
+			in:   "test.db?_busy_timeout_extra=1",
 			want: allDefaults,
 		},
 
@@ -366,7 +383,9 @@ func TestTimeWriteFormatNoMonotonic(t *testing.T) {
 
 // TestDefaultBusyTimeout verifies the connection comes up with a 5s busy
 // timeout by default (matching mattn/go-sqlite3), and that a user-supplied
-// _pragma=busy_timeout overrides the default across various DSN shapes.
+// busy timeout overrides the default across various DSN shapes: the
+// _busy_timeout/_timeout shorthand keys (as carried over from
+// mattn/go-sqlite3 DSNs) as well as _pragma=busy_timeout.
 func TestDefaultBusyTimeout(t *testing.T) {
 	tests := []struct {
 		name string
@@ -380,6 +399,9 @@ func TestDefaultBusyTimeout(t *testing.T) {
 		{"user override via equals syntax", "file::memory:?_pragma=busy_timeout%3D7500", 7500},
 		{"user override case-insensitive", "file::memory:?_pragma=BUSY_TIMEOUT(7500)", 7500},
 		{"user override buried among other pragmas", "file::memory:?_pragma=foreign_keys(on)&_pragma=busy_timeout(7500)", 7500},
+		{"user override via _busy_timeout shorthand", "file::memory:?_busy_timeout=7500", 7500},
+		{"user override via _timeout alias", "file::memory:?_timeout=7500", 7500},
+		{"user override via _busy_timeout on a plain name", ":memory:?_busy_timeout=7500", 7500},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

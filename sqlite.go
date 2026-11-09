@@ -309,10 +309,14 @@ func compareVersion(version1, version2 string) int {
 //     (https://gitlab.com/cznic/sqlite/-/issues/245).
 //   - _time_format=sqlite: format time.Time as "2006-01-02 15:04:05.999999999-07:00"
 //     (https://github.com/libtnb/sqlite/issues/15).
-//   - _pragma=busy_timeout(5000): default 5s busy timeout, just like
+//   - _busy_timeout=5000: default 5s busy timeout, just like
 //     mattn/go-sqlite3 does, to avoid "database is locked" errors.
 //
-// Existing values in the DSN are preserved.
+// Existing values in the DSN are preserved. The busy timeout is injected via
+// the _busy_timeout shorthand rather than _pragma because modernc.org/sqlite
+// applies _busy_timeout before any _pragma value, so whichever form the user
+// sets it with (_busy_timeout, its _timeout alias or _pragma) overrides the
+// default.
 func injectDSNParams(dsn string) string {
 	path, rawQuery := splitDSN(dsn)
 	if path == "" {
@@ -332,16 +336,8 @@ func injectDSNParams(dsn string) string {
 	addIfMissing("_texttotime", "1")
 	addIfMissing("_inttotime", "1")
 	addIfMissing("_time_format", "sqlite")
-
-	hasBusyTimeout := false
-	for _, p := range values["_pragma"] {
-		if strings.Contains(strings.ToLower(p), "busy_timeout") {
-			hasBusyTimeout = true
-			break
-		}
-	}
-	if !hasBusyTimeout {
-		additions = append(additions, "_pragma=busy_timeout(5000)")
+	if !hasBusyTimeout(values) {
+		additions = append(additions, "_busy_timeout=5000")
 	}
 
 	if len(additions) == 0 {
@@ -359,6 +355,20 @@ func splitDSN(dsn string) (path, query string) {
 		return dsn[:i], dsn[i+1:]
 	}
 	return dsn, ""
+}
+
+// hasBusyTimeout reports whether the DSN query already sets the busy timeout,
+// through the _busy_timeout/_timeout shorthand or a _pragma value.
+func hasBusyTimeout(values url.Values) bool {
+	if values.Has("_busy_timeout") || values.Has("_timeout") {
+		return true
+	}
+	for _, p := range values["_pragma"] {
+		if strings.Contains(strings.ToLower(p), "busy_timeout") {
+			return true
+		}
+	}
+	return false
 }
 
 // isCompositePrimaryKey reports whether field is part of a multi-column
