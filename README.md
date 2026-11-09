@@ -59,6 +59,21 @@ db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 | `_time_format` | `_time_format=sqlite` | How `time.Time` is serialized to TEXT: `sqlite` (default, `YYYY-MM-DD HH:MM:SS.SSS[+-]HH:MM`) or `datetime` (`YYYY-MM-DD HH:MM:SS`). |
 | `_time_integer_format` | `_time_integer_format=unix` | Store `time.Time` as INTEGER instead of TEXT: `unix`, `unix_milli`, `unix_micro`, or `unix_nano`. Overrides `_time_format`. |
 | `_timezone` | `_timezone=UTC` | Timezone applied when reading and writing time values (parsed by `time.LoadLocation`). |
+| `_dqs` | `_dqs=0` | Disable SQLite's [double-quoted string literal](https://www.sqlite.org/quirks.html#dblquote) quirk. |
+| `_defensive` | `_defensive=1` | Enable SQLite's [defensive mode](https://www.sqlite.org/c3ref/c_dbconfig_defensive.html). |
+
+#### mattn/go-sqlite3 compatible parameters
+
+Shorthand keys for DSNs carried over from [go-gorm/sqlite](https://github.com/go-gorm/sqlite); invalid values fail the connection.
+
+| Parameter | Alias | Sets |
+|-----------|-------|------|
+| `_busy_timeout` | `_timeout` | `PRAGMA busy_timeout` in milliseconds (default `5000`) |
+| `_foreign_keys` | `_fk` | `PRAGMA foreign_keys` |
+| `_journal_mode` | `_journal` | `PRAGMA journal_mode` |
+| `_synchronous` | `_sync` | `PRAGMA synchronous` |
+| `_auto_vacuum` | `_vacuum` | `PRAGMA auto_vacuum` |
+| `_query_only` | | `PRAGMA query_only` |
 
 #### SQLite URI parameters
 
@@ -76,7 +91,7 @@ These are interpreted by SQLite itself, not the driver. Available when the DSN s
 | Pragma | Recommended | Description |
 |--------|-------------|-------------|
 | `journal_mode(WAL)` | Yes | Enable [WAL mode](https://www.sqlite.org/wal.html) to improve concurrent read performance. |
-| `busy_timeout(N)` | Optional | Wait up to N milliseconds on `SQLITE_BUSY`. Defaults to 5s; override to change. |
+| `busy_timeout(N)` | Optional | Wait up to N milliseconds on `SQLITE_BUSY`. Defaults to 5s; override here or with `_busy_timeout=N`. |
 | `synchronous(NORMAL)` | With WAL | Reduce fsync calls in WAL mode with minimal durability risk. See [synchronous](https://www.sqlite.org/pragma.html#pragma_synchronous). |
 | `cache_size(-64000)` | Optional | Set page cache size in KiB (negative value) or pages (positive value). Defaults to `-2000` (2 MiB). |
 | `foreign_keys(1)` | If using FKs | Enable foreign key constraint enforcement (disabled by default in SQLite). |
