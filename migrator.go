@@ -129,7 +129,14 @@ func (m *Migrator) AlterColumn(value any, name string) error {
 				for i, f := range ddl.fields {
 					if matches := columnRegexp.FindStringSubmatch(f); len(matches) > 1 && matches[1] == field.DBName {
 						ddl.fields[i] = fmt.Sprintf("`%v` ?", field.DBName)
-						sqlArgs = []any{m.FullDataTypeOf(field)}
+						dataType := m.FullDataTypeOf(field)
+						sqlArgs = []any{dataType}
+						// an autoincrement column is rendered as `integer PRIMARY KEY
+						// AUTOINCREMENT`; a table created with a separate
+						// `PRIMARY KEY (col)` clause would then declare the key twice.
+						if strings.Contains(strings.ToUpper(dataType.SQL), "PRIMARY KEY") {
+							ddl.removePrimaryKey(field.DBName)
+						}
 						// table created by old version might look like `CREATE TABLE ? (? varchar(10) UNIQUE)`.
 						// FullDataTypeOf doesn't contain UNIQUE, so we need to add unique constraint.
 						if strings.Contains(strings.ToUpper(matches[3]), " UNIQUE") {

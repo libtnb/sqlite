@@ -18,6 +18,7 @@ var (
 	tableRegexp        = regexp.MustCompile(fmt.Sprintf(`(?is)(CREATE TABLE [%v\[]?[\w\d-]+[%v\]]?)(?:\s*\((.*)\))?(.*)$`, sqliteSeparator, sqliteSeparator))
 	checkRegexp        = regexp.MustCompile(`^(?i)CHECK[\s]*\(`)
 	constraintRegexp   = regexp.MustCompile(fmt.Sprintf(`^(?i)CONSTRAINT\s+(?:[%v\[]?[\p{L}\p{N}_-]+[%v\]]?|\?)\s+`, sqliteSeparator, sqliteSeparator))
+	primaryKeyRegexp   = regexp.MustCompile(fmt.Sprintf(`^(?i)(?:CONSTRAINT\s+[%v\[]?[\p{L}\p{N}_-]+[%v\]]?\s+)?PRIMARY\s+KEY\s*\(`, sqliteSeparator, sqliteSeparator))
 	separatorRegexp    = regexp.MustCompile(fmt.Sprintf("[%v]", sqliteSeparator))
 	columnRegexp       = regexp.MustCompile(fmt.Sprintf(`^[%v\[]?([\p{L}\p{N}_]+)[%v\]]?\s+(\w+(?:\([^)]*\))?)(.*)$`, sqliteSeparator, sqliteSeparator))
 	defaultValueRegexp = regexp.MustCompile(`(?i) DEFAULT \(?(.+)?\)?( |COLLATE|GENERATED|$)`)
@@ -249,6 +250,23 @@ func (d *ddl) removeConstraint(name string) bool {
 
 	for i := 0; i < len(d.fields); i++ {
 		if reg.MatchString(d.fields[i]) {
+			d.fields = append(d.fields[:i], d.fields[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// removePrimaryKey drops a table-level PRIMARY KEY clause, named or not, that
+// covers exactly the given column. SQLite rejects a table with more than one
+// primary key, so the clause has to go once the column's own definition
+// declares PRIMARY KEY inline. Composite keys are left untouched.
+func (d *ddl) removePrimaryKey(column string) bool {
+	for i, f := range d.fields {
+		if !primaryKeyRegexp.MatchString(f) {
+			continue
+		}
+		if cols, err := parseAllColumns(f); err == nil && len(cols) == 1 && strings.EqualFold(cols[0], column) {
 			d.fields = append(d.fields[:i], d.fields[i+1:]...)
 			return true
 		}

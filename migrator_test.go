@@ -778,6 +778,91 @@ func TestParseDDL_TableOptionsRoundTrip(t *testing.T) {
 	}
 }
 
+type LegacyPKHost struct {
+	ID       uint `gorm:"primaryKey"`
+	SSHKeyID uint
+	HopID    uint
+}
+
+func (LegacyPKHost) TableName() string { return "hosts" }
+
+type LegacyCompositePK struct {
+	ID   uint   `gorm:"primaryKey"`
+	Code string `gorm:"primaryKey"`
+}
+
+func (LegacyCompositePK) TableName() string { return "composite_pks" }
+
+// A table whose primary key is a separate `PRIMARY KEY (col)` clause used to
+// break AlterColumn on an autoincrement key: the rebuilt column is rendered as
+// `integer PRIMARY KEY AUTOINCREMENT` while the old clause declared the key a
+// second time (go-gorm/sqlite #249).
+func TestAlterColumnTableLevelPrimaryKey(t *testing.T) {
+	forms := map[string]string{
+		"unnamed": "PRIMARY KEY (`id`)",
+		"named":   "CONSTRAINT `pk_hosts` PRIMARY KEY (`id`)",
+	}
+	for form, pk := range forms {
+		t.Run(form, func(t *testing.T) {
+			db := openTestDB(t, "")
+			legacy := "CREATE TABLE `hosts` (`id` integer,`ssh_key_id` integer,`hop_id` integer," + pk +
+				",CONSTRAINT `fk_hosts_hop` FOREIGN KEY (`hop_id`) REFERENCES `hosts`(`id`))"
+			if err := db.Exec(legacy).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Exec("INSERT INTO `hosts` (`id`,`ssh_key_id`,`hop_id`) VALUES (1, 10, NULL), (2, 20, 1)").Error; err != nil {
+				t.Fatal(err)
+			}
+
+			if err := db.Migrator().AlterColumn(&LegacyPKHost{}, "ID"); err != nil {
+				t.Fatalf("AlterColumn: %v", err)
+			}
+
+			createSQL := tableDDL(t, db, "hosts")
+			if n := strings.Count(strings.ToUpper(createSQL), "PRIMARY KEY"); n != 1 {
+				t.Errorf("DDL declares PRIMARY KEY %d times, want 1: %s", n, createSQL)
+			}
+			if !strings.Contains(createSQL, "fk_hosts_hop") {
+				t.Errorf("foreign key lost in rebuild: %s", createSQL)
+			}
+
+			var n int
+			if err := db.Raw("SELECT count(*) FROM `hosts`").Scan(&n).Error; err != nil {
+				t.Fatal(err)
+			}
+			if n != 2 {
+				t.Errorf("rows after rebuild = %d, want 2", n)
+			}
+
+			// the key still works: a new row gets the next id
+			host := LegacyPKHost{SSHKeyID: 30}
+			if err := db.Create(&host).Error; err != nil {
+				t.Fatal(err)
+			}
+			if host.ID != 3 {
+				t.Errorf("new row id = %d, want 3", host.ID)
+			}
+		})
+	}
+
+	// a composite key is not rendered inline, so its table-level clause must
+	// survive the rebuild untouched
+	t.Run("composite", func(t *testing.T) {
+		db := openTestDB(t, "")
+		if err := db.Exec("CREATE TABLE `composite_pks` (`id` integer,`code` text,PRIMARY KEY (`id`,`code`))").Error; err != nil {
+			t.Fatal(err)
+		}
+
+		if err := db.Migrator().AlterColumn(&LegacyCompositePK{}, "ID"); err != nil {
+			t.Fatalf("AlterColumn: %v", err)
+		}
+
+		if createSQL := tableDDL(t, db, "composite_pks"); !strings.Contains(createSQL, "PRIMARY KEY (`id`,`code`)") {
+			t.Errorf("composite primary key lost in rebuild: %s", createSQL)
+		}
+	})
+}
+
 // openTestDB opens a file-backed database in a per-test temp dir so that
 // connection-pool behavior matches real usage (":memory:" would give every
 // pooled connection its own database).

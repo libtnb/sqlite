@@ -446,6 +446,91 @@ func TestRemoveConstraint(t *testing.T) {
 	}
 }
 
+func TestRemovePrimaryKey(t *testing.T) {
+	params := []struct {
+		name    string
+		fields  []string
+		column  string
+		success bool
+		expect  []string
+	}{
+		{
+			name:    "unnamed",
+			fields:  []string{"`id` integer", "`name` text", "PRIMARY KEY (`id`)"},
+			column:  "id",
+			success: true,
+			expect:  []string{"`id` integer", "`name` text"},
+		},
+		{
+			name:    "lowercase_no_space",
+			fields:  []string{"`id` integer", "primary key(`id`)"},
+			column:  "id",
+			success: true,
+			expect:  []string{"`id` integer"},
+		},
+		{
+			name:    "named",
+			fields:  []string{"`id` integer", "CONSTRAINT `pk_hosts` PRIMARY KEY (`id`)"},
+			column:  "id",
+			success: true,
+			expect:  []string{"`id` integer"},
+		},
+		{
+			name:    "brackets",
+			fields:  []string{"[id] integer", "CONSTRAINT [pk_hosts] PRIMARY KEY ([id])"},
+			column:  "id",
+			success: true,
+			expect:  []string{"[id] integer"},
+		},
+		{
+			name:    "unquoted_other_case",
+			fields:  []string{"ID integer", "PRIMARY KEY (ID)"},
+			column:  "id",
+			success: true,
+			expect:  []string{"ID integer"},
+		},
+		{
+			name:    "keeps_other_constraints",
+			fields:  []string{"`id` integer", "`hop_id` integer", "PRIMARY KEY (`id`)", "CONSTRAINT `fk_hosts_hop` FOREIGN KEY (`hop_id`) REFERENCES `hosts`(`id`)"},
+			column:  "id",
+			success: true,
+			expect:  []string{"`id` integer", "`hop_id` integer", "CONSTRAINT `fk_hosts_hop` FOREIGN KEY (`hop_id`) REFERENCES `hosts`(`id`)"},
+		},
+		{
+			name:    "composite",
+			fields:  []string{"`id` integer", "`code` text", "PRIMARY KEY (`id`,`code`)"},
+			column:  "id",
+			success: false,
+			expect:  []string{"`id` integer", "`code` text", "PRIMARY KEY (`id`,`code`)"},
+		},
+		{
+			name:    "other_column",
+			fields:  []string{"`id` integer", "`code` text", "PRIMARY KEY (`code`)"},
+			column:  "id",
+			success: false,
+			expect:  []string{"`id` integer", "`code` text", "PRIMARY KEY (`code`)"},
+		},
+		{
+			name:    "none",
+			fields:  []string{"`id` integer PRIMARY KEY", "`name` text"},
+			column:  "id",
+			success: false,
+			expect:  []string{"`id` integer PRIMARY KEY", "`name` text"},
+		},
+	}
+
+	for _, p := range params {
+		t.Run(p.name, func(t *testing.T) {
+			testDDL := ddl{fields: p.fields}
+
+			success := testDDL.removePrimaryKey(p.column)
+
+			tests.AssertEqual(t, p.success, success)
+			tests.AssertEqual(t, p.expect, testDDL.fields)
+		})
+	}
+}
+
 func TestGetColumns(t *testing.T) {
 	params := []struct {
 		name    string
