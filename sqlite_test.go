@@ -3,12 +3,18 @@ package sqlite
 import (
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 	"modernc.org/sqlite"
 )
 
@@ -419,5 +425,39 @@ func TestDefaultBusyTimeout(t *testing.T) {
 				t.Errorf("busy_timeout = %d; want %d", got, tt.want)
 			}
 		})
+	}
+}
+
+// The driver turns on modernc.org/sqlite's process-wide StrictPragmas,
+// OFDLocking and Fdatasync switches when it is imported.
+func TestProcessWideDefaults(t *testing.T) {
+	if !sqlite.StrictPragmasEnabled() {
+		t.Error("StrictPragmas is off")
+	}
+
+	// a _pragma value smuggling in a second statement must fail to open
+	// before anything runs
+	dir := t.TempDir()
+	attached := filepath.Join(dir, "x.db")
+	v := url.Values{"_pragma": {"user_version=7", "foreign_keys(1); ATTACH '" + attached + "' AS x"}}
+	db, err := gorm.Open(Open(filepath.Join(dir, "a.db")+"?"+v.Encode()), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err == nil {
+		closeTestDB(t, db)
+	}
+	if !errors.Is(err, sqlite.ErrMultiStatementPragma) {
+		t.Errorf("gorm.Open with a multi-statement _pragma: err = %v, want ErrMultiStatementPragma", err)
+	}
+	if _, err := os.Stat(attached); err == nil {
+		t.Error("the smuggled ATTACH ran")
+	}
+
+	// the other two only exist on some platforms
+	if runtime.GOOS == "linux" {
+		if !sqlite.FdatasyncEnabled() {
+			t.Error("Fdatasync is off")
+		}
+		if _, set := os.LookupEnv("MODERNC_SQLITE_OFD_LOCK"); !set && !sqlite.OFDLockingEnabled() {
+			t.Error("OFDLocking is off")
+		}
 	}
 }

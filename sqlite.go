@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 
@@ -20,6 +21,20 @@ import (
 
 // DriverName is the default driver name for SQLite.
 const DriverName = "sqlite"
+
+// init turns on modernc.org/sqlite's process-wide StrictPragmas, OFDLocking
+// and Fdatasync switches, which are off upstream. An application can opt out
+// by calling any of them with false before opening its first database.
+func init() {
+	moderncsqlite.StrictPragmas(true)
+	// respect an explicit MODERNC_SQLITE_OFD_LOCK; errors only mean the
+	// platform lacks the feature (OFD locks are Linux-only, fdatasync is
+	// unavailable on macOS and Windows), and the switch then stays off
+	if _, ok := os.LookupEnv("MODERNC_SQLITE_OFD_LOCK"); !ok {
+		_, _ = moderncsqlite.OFDLocking(true)
+	}
+	_, _ = moderncsqlite.Fdatasync(true)
+}
 
 type Dialector struct {
 	DriverName string

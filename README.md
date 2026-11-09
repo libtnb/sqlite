@@ -54,7 +54,7 @@ db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 
 | Parameter | Example | Description |
 |-----------|---------|-------------|
-| `_pragma` | `_pragma=journal_mode(WAL)` | Execute a `PRAGMA` statement on each new connection; can be specified multiple times. |
+| `_pragma` | `_pragma=journal_mode(WAL)` | Execute a single `PRAGMA` statement on each new connection; can be specified multiple times. |
 | `_txlock` | `_txlock=immediate` | Transaction locking mode: `deferred` (default), `immediate`, or `exclusive`. |
 | `_time_format` | `_time_format=sqlite` | How `time.Time` is serialized to TEXT: `sqlite` (default, `YYYY-MM-DD HH:MM:SS.SSS[+-]HH:MM`) or `datetime` (`YYYY-MM-DD HH:MM:SS`). |
 | `_time_integer_format` | `_time_integer_format=unix` | Store `time.Time` as INTEGER instead of TEXT: `unix`, `unix_milli`, `unix_micro`, or `unix_nano`. Overrides `_time_format`. |
@@ -118,6 +118,14 @@ sqlDB.SetMaxIdleConns(1)
 
 > [!NOTE]
 > This serializes all database access (reads and writes). If you need concurrent reads, consider using WAL mode with a separate read-only connection pool instead. This approach does not work with `:memory:` databases ([details](https://github.com/mattn/go-sqlite3/issues/204)).
+
+### Process-wide settings
+
+The driver turns on these [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite) switches when imported; call them with `false` before opening a database to opt out.
+
+- `StrictPragmas`: reject a `_pragma` value holding more than one SQL statement.
+- `OFDLocking` (Linux only): keep SQLite's file locks when the process closes another descriptor of the database file. `MODERNC_SQLITE_OFD_LOCK=0` also disables it.
+- `Fdatasync` (not on macOS and Windows): commit with `fdatasync(2)` instead of `fsync(2)`.
 
 ## Testing
 
